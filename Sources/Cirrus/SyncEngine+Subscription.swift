@@ -8,8 +8,11 @@ extension SyncEngine {
 
   func initializeSubscription(with queue: OperationQueue) -> Bool {
     self.createPrivateSubscriptionsIfNeeded()
+    
     queue.waitUntilAllOperationsAreFinished()
+    
     guard self.createdPrivateSubscription else { return false }
+    
     return true
   }
 
@@ -35,8 +38,7 @@ extension SyncEngine {
       return
     }
 
-    let subscription = CKRecordZoneSubscription(
-      zoneID: zoneIdentifier, subscriptionID: privateSubscriptionIdentifier)
+    let subscription = CKRecordZoneSubscription(zoneID: zoneIdentifier, subscriptionID: privateSubscriptionIdentifier)
 
     let notificationInfo = CKSubscription.NotificationInfo()
     notificationInfo.shouldSendContentAvailable = true
@@ -44,8 +46,7 @@ extension SyncEngine {
     subscription.notificationInfo = notificationInfo
     subscription.recordType = recordType
 
-    let operation = CKModifySubscriptionsOperation(
-      subscriptionsToSave: [subscription], subscriptionIDsToDelete: nil)
+    let operation = CKModifySubscriptionsOperation(subscriptionsToSave: [subscription], subscriptionIDsToDelete: nil)
 
     operation.database = privateDatabase
     operation.qualityOfService = .userInitiated
@@ -104,10 +105,19 @@ extension SyncEngine {
           self.createPrivateSubscriptionsIfNeeded()
         }
       } else {
-        self.logHandler(
-          "Private subscription found, the device is subscribed to CloudKit change notifications.",
-          .info
-        )
+        self.workQueue.async { [weak self] in
+          guard let self else { return }
+          
+          self.logHandler("Private subscription found, the device is subscribed to CloudKit change notifications.", .info)
+          
+          // If checking failed earlier, we set this flag to false, must reset to true if subscription in fact exists, otherwise we'll keep
+          // trying to create the private subscription, which will always throw an error
+          if self.createdPrivateSubscription == false {
+            self.createdPrivateSubscription = true
+            
+            self.logHandler("Private subscription exists, updating flag", .debug)
+          }
+        }
       }
     }
 

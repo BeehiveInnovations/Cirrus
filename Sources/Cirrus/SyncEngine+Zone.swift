@@ -95,10 +95,18 @@ extension SyncEngine {
           self.createCustomZoneIfNeeded()
         }
       }
-      else if self.createdCustomZone == false {
-        // If checking failed earlier, we set this flag to false, must reset to true if zone in fact exists, otherwise we'll keep
-        // trying to create the zone, which will always throw an error
-        self.createdCustomZone = true
+      else {
+        self.workQueue.async { [weak self] in
+          guard let self else { return }
+          
+          // If checking failed earlier, we set this flag to false, must reset to true if zone in fact exists, otherwise we'll keep
+          // trying to create the zone, which will always throw an error
+          if self.createdCustomZone == false {
+            self.createdCustomZone = true
+            
+            self.logHandler("Custom zone exists, updating flag", .debug)
+          }
+        }
       }
     }
 
