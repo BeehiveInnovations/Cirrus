@@ -195,6 +195,16 @@ public final class SyncEngine<Model: CloudKitCodable> {
     }
   }
   
+  /// Async wrapper for pullChanges method
+  public func pullChangesAsync(resettingToken: Bool = false) async {
+    // Use a continuation to bridge the callback-based API with async/await
+    await withCheckedContinuation { continuation in
+      self.pullChanges(resettingToken: resettingToken) {
+        continuation.resume()
+      }
+    }
+  }
+  
   public func pushChanges() {
     logHandler(#function, .debug)
     
