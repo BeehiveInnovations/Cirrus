@@ -129,7 +129,10 @@ public final class SyncEngine<Model: CloudKitCodable> {
   }
 
   /// Upload an array of models to CloudKit.
-  public func upload(_ models: [Model]) {
+  /// - Parameters:
+  ///   - models: models to upload
+  ///   - waitUntilFinished: wait until finished
+  public func upload(_ models: [Model], waitUntilFinished: Bool = false) {
     logHandler(#function, .debug)
 
     workQueue.async { [weak self] in
@@ -137,6 +140,10 @@ public final class SyncEngine<Model: CloudKitCodable> {
       
       self.uploadContext.buffer(models)
       self.modifyRecords(with: self.uploadContext)
+      
+      if waitUntilFinished {
+        cloudOperationQueue.waitUntilAllOperationsAreFinished()
+      }
     }
   }
   
@@ -163,7 +170,10 @@ public final class SyncEngine<Model: CloudKitCodable> {
   }
 
   /// Delete an array of models from CloudKit.
-  public func delete(_ models: [Model]) {
+  /// - Parameters:
+  ///   - models: models
+  ///   - waitUntilFinished: wait until finished
+  public func delete(_ models: [Model], waitUntilFinished: Bool = false) {
     logHandler(#function, .debug)
 
     workQueue.async { [weak self] in
@@ -174,6 +184,10 @@ public final class SyncEngine<Model: CloudKitCodable> {
 
       self.deleteContext.buffer(models)
       self.modifyRecords(with: self.deleteContext)
+      
+      if waitUntilFinished {
+        cloudOperationQueue.waitUntilAllOperationsAreFinished()
+      }
     }
   }
   
