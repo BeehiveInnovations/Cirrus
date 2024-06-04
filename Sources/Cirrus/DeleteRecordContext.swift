@@ -50,10 +50,15 @@ final class DeleteRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
       }
     }
     set {
+      let prevRecords = self.recordIDsToDelete
+      
       do {
-        logHandler("Updating \(self.name) buffer with \(newValue.count) items", .info)
-        let data = try NSKeyedArchiver.archivedData(
-          withRootObject: newValue, requiringSecureCoding: true)
+        if prevRecords.count != newValue.count {
+          logHandler("Updating \(self.name) buffer with \(newValue.count) items", .info)
+        }
+        
+        let data = try NSKeyedArchiver.archivedData(withRootObject: newValue, requiringSecureCoding: true)
+        
         defaults.set(data, forKey: deleteBufferKey)
       } catch {
         logHandler("Failed to encode record ids for deletion: \(String(describing: error))", .error)
