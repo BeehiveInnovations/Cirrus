@@ -154,19 +154,24 @@ public final class SyncEngine<Model: CloudKitCodable> {
   }
 
   /// Forces a data synchronization with CloudKit.
-  ///
+  /// 
   /// Use this method for force sync any data that may not have been able to upload
   /// to CloudKit automatically due to network conditions or other factors.
-  ///
+  /// 
   /// This method performs the following actions (in this order):
   /// 1. Uploads any models that were passed to `upload(_:)` and were unable to be uploaded to CloudKit.
   /// 2. Deletes any models that were passed to `delete(_:)` and were unable to be deleted from CloudKit.
   /// 3. Fetches any new model changes from CloudKit.
-  public func forceSync() {
+  /// - Parameter resettingToken: reset the sync token to fetch everything. Default: `false`
+  public func forceSync(resettingToken: Bool = false) {
     logHandler(#function, .debug)
 
     workQueue.async { [weak self] in
       guard let self else { return }
+      
+      if resettingToken {
+        self.resetChangeToken()
+      }
       
       // Fetch changes before pushing changes. This way we avoid pushing out udpates to remotely deleted
       // objects
