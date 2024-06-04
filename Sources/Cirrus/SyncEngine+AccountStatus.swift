@@ -29,7 +29,7 @@ extension SyncEngine {
   private func updateAccountStatus() {
     logHandler(#function, .debug)
     container.accountStatus { [weak self] status, error in
-      if let error = error {
+      if let error {
         self?.logHandler(
           "Error retriving iCloud account status: \(error.localizedDescription)", .error)
       }

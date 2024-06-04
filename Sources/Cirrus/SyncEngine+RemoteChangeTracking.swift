@@ -62,7 +62,7 @@ extension SyncEngine {
 
     // Called after the record zone fetch completes
     operation.recordZoneFetchCompletionBlock = { [weak self] _, token, _, _, error in
-      guard let self = self else { return }
+      guard let self else { return }
 
       if let error = error as? CKError {
         self.logHandler(
@@ -115,9 +115,9 @@ extension SyncEngine {
     }
 
     operation.fetchRecordZoneChangesCompletionBlock = { [weak self] error in
-      guard let self = self else { return }
+      guard let self else { return }
 
-      if let error = error {
+      if let error {
         self.logHandler(
           "Failed to fetch record zone changes: \(String(describing: error))", .error)
 

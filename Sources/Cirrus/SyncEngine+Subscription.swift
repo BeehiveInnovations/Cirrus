@@ -51,9 +51,9 @@ extension SyncEngine {
     operation.qualityOfService = .userInitiated
 
     operation.modifySubscriptionsCompletionBlock = { [weak self] _, _, error in
-      guard let self = self else { return }
+      guard let self else { return }
 
-      if let error = error {
+      if let error {
         self.logHandler(
           "Failed to create private CloudKit subscription: \(String(describing: error))", .error)
 
@@ -75,14 +75,12 @@ extension SyncEngine {
     operation.fetchSubscriptionCompletionBlock = { [weak self] ids, error in
       guard let self else { return }
 
-      if let error = error {
+      if let error {
         self.logHandler(
           "Failed to check for private zone subscription existence: \(String(describing: error))",
           .error)
 
-        if !error.retryCloudKitOperationIfPossible(
-          self.logHandler, queue: self.workQueue, with: { self.checkSubscription() })
-        {
+        if !error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue, with: { self.checkSubscription() }) {
           self.logHandler(
             "Irrecoverable error when fetching private zone subscription, assuming it doesn't exist: \(String(describing: error))",
             .error)

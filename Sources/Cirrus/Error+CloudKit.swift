@@ -75,18 +75,19 @@ extension Error {
   ///   - log: The logger to use for logging information about the error handling, uses the default one if not set
   ///   - block: The block that will execute the operation later if it can be retried
   /// - Returns: Whether or not it was possible to retry the operation
-  @discardableResult func retryCloudKitOperationIfPossible(
-    _ logger: ((String, OSLogType) -> Void)? = nil, queue: DispatchQueue,
-    with block: @escaping () -> Void
-  ) -> Bool {
+  @discardableResult func retryCloudKitOperationIfPossible(_ logger: ((String, OSLogType) -> Void)? = nil, queue: DispatchQueue,
+                                                           with block: @escaping () -> Void) -> Bool {
     guard let effectiveError = self as? CKError else { return false }
     
     let retryDelay: Double
+    
     if let suggestedRetryDelay = effectiveError.retryAfterSeconds {
       retryDelay = suggestedRetryDelay
-    } else if effectiveError.code == CKError.Code.limitExceeded {
+    } 
+    else if effectiveError.code == CKError.Code.limitExceeded {
       retryDelay = 0
-    } else {
+    } 
+    else {
       logger?("Error is not recoverable", .error)
       return false
     }
