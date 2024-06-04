@@ -30,25 +30,15 @@ final class UploadRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
       records = values.compactMap { try? CKRecordEncoder(zoneID: zoneID).encode($0) }
     }
     
-    // optimization: calls setter once
-    recordsToSave = records.reduce(into: [CKRecord.ID: CKRecord]()) { result, record in
-      result[record.recordID] = record
-    }
+    // optimization
+    updateRecordsToAdd(records)
   }
 
   func removeFromBuffer(_ values: [Persistable]) {
     // Map Persistable items to CKRecords and collect their IDs
     let recordIDsToRemove = values.compactMap { try? CKRecordEncoder(zoneID: zoneID).encode($0) }.map { $0.recordID }
     
-    // optimization: Get current records to save, manipulate the dictionary once
-    var currentRecordsToSave = recordsToSave
-    
-    // Remove all entries at once based on collected record IDs
-    recordIDsToRemove.forEach { currentRecordsToSave.removeValue(forKey: $0) }
-    
-    // Re-assign modified dictionary back to recordsToSave if recordsToSave has a setter
-    // or update your storage mechanism if recordsToSave is computed based on some storage
-    recordsToSave = currentRecordsToSave
+    updateRecordsIDToRemove(recordIDsToRemove)
   }
 
   // MARK: - RecordModifying
@@ -85,9 +75,7 @@ final class UploadRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
 
   var recordIDsToDelete: [CKRecord.ID] = []
 
-  func modelChangeForUpdatedRecords<T: CloudKitCodable>(
-    recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]
-  ) -> SyncEngine<T>.ModelChange {
+  func modelChangeForUpdatedRecords<T: CloudKitCodable>(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]) -> SyncEngine<T>.ModelChange {
     let models: Set<T> = Set(
       recordsSaved.compactMap { record in
         do {
@@ -99,22 +87,38 @@ final class UploadRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
         }
       })
 
-    updateRecordsToSave(with: recordsSaved)
+    updateRecordsToRemove(recordsSaved)
 
-    return .updated(models)
+    return .updatesPushed(models)
   }
 
   func failedToUpdateRecords(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]) {
-    updateRecordsToSave(with: recordsSaved)
+    updateRecordsToRemove(recordsSaved)
   }
   
   /// Optimized save to `recordsToSave`
   /// - Parameter recordsSaved: records to remove
-  private func updateRecordsToSave(with recordsSaved: [CKRecord]) {
+  private func updateRecordsToRemove(_ removeRecords: [CKRecord]) {
+    updateRecordsIDToRemove(removeRecords.map { $0.recordID })
+  }
+  
+  private func updateRecordsIDToRemove(_ removeRecordIDs: [CKRecord.ID]) {
     // Access recordsToSave once, modify, and then update if necessary
     var currentRecordsToSave = recordsToSave
     
-    recordsSaved.forEach { currentRecordsToSave.removeValue(forKey: $0.recordID) }
+    removeRecordIDs.forEach { currentRecordsToSave.removeValue(forKey: $0) }
+    
+    // Assuming recordsToSave has a setter
+    recordsToSave = currentRecordsToSave
+  }
+  
+  /// Optimized save to `recordsToSave`
+  /// - Parameter recordsSaved: records to remove
+  private func updateRecordsToAdd(_ addRecords: [CKRecord]) {
+    // Access recordsToSave once, modify, and then update if necessary
+    var currentRecordsToSave = recordsToSave
+    
+    addRecords.forEach { currentRecordsToSave[$0.recordID] = $0 }
     
     // Assuming recordsToSave has a setter
     recordsToSave = currentRecordsToSave

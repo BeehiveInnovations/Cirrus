@@ -7,8 +7,15 @@ import os.log
 public final class SyncEngine<Model: CloudKitCodable> {
 
   public enum ModelChange {
-    case deleted(Set<CloudKitIdentifier>)
-    case updated(Set<Model>)
+    /// Pulled deletes from CloudKit
+    case deletesPulled(Set<CloudKitIdentifier>)
+    /// Pulled updates from CloudKit
+    case updatesPulled(Set<Model>)
+    
+    /// Items deleted (on CloudKit) successfully
+    case deletesPushed(Set<CloudKitIdentifier>)
+    /// Items updated (on CloudKit) successfully
+    case updatesPushed(Set<Model>)
   }
 
   // MARK: - Public Properties

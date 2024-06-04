@@ -66,16 +66,12 @@ final class DeleteRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
     }
   }
 
-  func modelChangeForUpdatedRecords<T: CloudKitCodable>(
-    recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]
-  )
-    -> SyncEngine<T>.ModelChange
-  {
+  func modelChangeForUpdatedRecords<T: CloudKitCodable>(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]) -> SyncEngine<T>.ModelChange {
     let recordIdentifiersDeletedSet = Set(recordIDsDeleted.map(\.recordName))
 
     recordIDsToDelete.removeAll { recordIDsDeleted.contains($0) }
 
-    return .deleted(recordIdentifiersDeletedSet)
+    return .deletesPushed(recordIdentifiersDeletedSet)
   }
 
   func failedToUpdateRecords(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]) {

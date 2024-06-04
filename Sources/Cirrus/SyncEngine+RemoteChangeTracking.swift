@@ -208,7 +208,7 @@ extension SyncEngine {
 
     let deletedIdentifiers = Set(deletedRecordIDs.map(\.recordName))
 
-    modelsChangedSubject.send(.updated(models))
-    modelsChangedSubject.send(.deleted(deletedIdentifiers))
+    modelsChangedSubject.send(.updatesPulled(models))
+    modelsChangedSubject.send(.deletesPulled(deletedIdentifiers))
   }
 }
