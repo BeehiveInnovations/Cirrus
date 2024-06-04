@@ -29,12 +29,26 @@ final class UploadRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
       logHandler("Failed to encode records for upload: \(String(describing: error))", .error)
       records = values.compactMap { try? CKRecordEncoder(zoneID: zoneID).encode($0) }
     }
-    records.forEach { recordsToSave[$0.recordID] = $0 }
+    
+    // optimization: calls setter once
+    recordsToSave = records.reduce(into: [CKRecord.ID: CKRecord]()) { result, record in
+      result[record.recordID] = record
+    }
   }
 
   func removeFromBuffer(_ values: [Persistable]) {
-    let records = values.compactMap { try? CKRecordEncoder(zoneID: zoneID).encode($0) }
-    records.forEach { recordsToSave.removeValue(forKey: $0.recordID) }
+    // Map Persistable items to CKRecords and collect their IDs
+    let recordIDsToRemove = values.compactMap { try? CKRecordEncoder(zoneID: zoneID).encode($0) }.map { $0.recordID }
+    
+    // optimization: Get current records to save, manipulate the dictionary once
+    var currentRecordsToSave = recordsToSave
+    
+    // Remove all entries at once based on collected record IDs
+    recordIDsToRemove.forEach { currentRecordsToSave.removeValue(forKey: $0) }
+    
+    // Re-assign modified dictionary back to recordsToSave if recordsToSave has a setter
+    // or update your storage mechanism if recordsToSave is computed based on some storage
+    recordsToSave = currentRecordsToSave
   }
 
   // MARK: - RecordModifying
@@ -81,12 +95,24 @@ final class UploadRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
         }
       })
 
-    recordsSaved.forEach { recordsToSave.removeValue(forKey: $0.recordID) }
+    updateRecordsToSave(with: recordsSaved)
 
     return .updated(models)
   }
 
   func failedToUpdateRecords(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]) {
-    recordsSaved.forEach { recordsToSave.removeValue(forKey: $0.recordID) }
+    updateRecordsToSave(with: recordsSaved)
+  }
+  
+  /// Optimized save to `recordsToSave`
+  /// - Parameter recordsSaved: records to remove
+  private func updateRecordsToSave(with recordsSaved: [CKRecord]) {
+    // Access recordsToSave once, modify, and then update if necessary
+    var currentRecordsToSave = recordsToSave
+    
+    recordsSaved.forEach { currentRecordsToSave.removeValue(forKey: $0.recordID) }
+    
+    // Assuming recordsToSave has a setter
+    recordsToSave = currentRecordsToSave
   }
 }
