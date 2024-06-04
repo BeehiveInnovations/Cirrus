@@ -184,11 +184,9 @@ public final class SyncEngine<Model: CloudKitCodable> {
   /// in your AppDelegate's `application(_:didFinishLaunchingWithOptions:)`. Then, call this method in
   /// `application(_:didReceiveRemoteNotification:fetchCompletionHandler:)` to process remote changes from CloudKit.
   /// - Parameters:
-  ///   - userInfo: A dictionary that contains information about the remove notification. Pass the `userInfo` dictionary from `application(_:didReceiveRemoteNotification:fetchCompletionHandler:)` here.
+  ///   - userInfo: A dictionary that contains information about the remote notification. Pass the `userInfo` dictionary from `application(_:didReceiveRemoteNotification:fetchCompletionHandler:)` here.
   /// - Returns: Whether or not this notification was processed by the sync engine.
-  @discardableResult public func processRemoteChangeNotification(with userInfo: [AnyHashable: Any])
-    -> Bool
-  {
+  @discardableResult public func processRemoteChangeNotification(with userInfo: [AnyHashable: Any]) -> Bool {
     logHandler(#function, .debug)
 
     guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) else {

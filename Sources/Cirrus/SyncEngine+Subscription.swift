@@ -8,9 +8,7 @@ extension SyncEngine {
 
   func initializeSubscription(with queue: OperationQueue) -> Bool {
     self.createPrivateSubscriptionsIfNeeded()
-    
-    queue.waitUntilAllOperationsAreFinished()
-    
+        
     guard self.createdPrivateSubscription else { return false }
     
     return true
@@ -68,6 +66,9 @@ extension SyncEngine {
     }
 
     cloudOperationQueue.addOperation(operation)
+    
+    // Wait for operation to complete
+    cloudOperationQueue.waitUntilAllOperationsAreFinished()
   }
 
   private func checkSubscription() {
@@ -125,5 +126,8 @@ extension SyncEngine {
     operation.database = privateDatabase
 
     cloudOperationQueue.addOperation(operation)
+    
+    // Wait for operation to complete
+    cloudOperationQueue.waitUntilAllOperationsAreFinished()
   }
 }

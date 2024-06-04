@@ -40,10 +40,10 @@ extension SyncEngine {
     operation.fetchAllChanges = true
 
     // Called if the record zone fetch was not fully completed
-    operation.recordZoneChangeTokensUpdatedBlock = { [weak self] _, changeToken, _ in
+    operation.recordZoneChangeTokensUpdatedBlock = { [weak self] _, newChangeToken, _ in
       guard let self else { return }
 
-      guard let changeToken = changeToken else { return }
+      guard let newChangeToken else { return }
 
       // The fetch may have failed halfway through, so we need to save the change token,
       // emit the current records, and then clear the arrays so we can re-request for the
@@ -53,7 +53,7 @@ extension SyncEngine {
         
         self.logHandler("Commiting new change token and emitting changes", .debug)
 
-        self.privateChangeToken = changeToken
+        self.privateChangeToken = newChangeToken
         self.emitServerChanges(with: changedRecords, deletedRecordIDs: deletedRecordIDs)
         changedRecords = []
         deletedRecordIDs = []
@@ -61,7 +61,7 @@ extension SyncEngine {
     }
 
     // Called after the record zone fetch completes
-    operation.recordZoneFetchCompletionBlock = { [weak self] _, token, _, _, error in
+    operation.recordZoneFetchCompletionBlock = { [weak self] _, newChangeToken, _, _, error in
       guard let self else { return }
 
       if let error = error as? CKError {
@@ -69,8 +69,7 @@ extension SyncEngine {
           "Failed to fetch record zone changes: \(String(describing: error))", .error)
 
         if error.code == .changeTokenExpired {
-          self.logHandler(
-            "Change token expired, resetting token and trying again", .error)
+          self.logHandler("Change token expired, resetting token and trying again", .error)
 
           self.workQueue.async { [weak self] in
             guard let self else { return }
@@ -78,18 +77,20 @@ extension SyncEngine {
             self.resetChangeToken()
             self.fetchRemoteChanges()
           }
-        } else {
+        } 
+        else {
           error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
             self.fetchRemoteChanges()
           }
         }
-      } else {
+      } 
+      else {
         self.logHandler("Commiting new change token", .debug)
 
         self.workQueue.async { [weak self] in
           guard let self else { return }
           
-          self.privateChangeToken = token
+          self.privateChangeToken = newChangeToken
         }
       }
     }
@@ -118,13 +119,13 @@ extension SyncEngine {
       guard let self else { return }
 
       if let error {
-        self.logHandler(
-          "Failed to fetch record zone changes: \(String(describing: error))", .error)
+        self.logHandler("Failed to fetch record zone changes: \(String(describing: error))", .error)
 
         error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
           self.fetchRemoteChanges()
         }
-      } else {
+      } 
+      else {
         self.logHandler("Finished fetching record zone changes", .info)
 
         self.workQueue.async { [weak self] in
@@ -142,6 +143,9 @@ extension SyncEngine {
     operation.database = privateDatabase
 
     cloudOperationQueue.addOperation(operation)
+    
+    // we want to wait for the fetch to complete before pushing changes
+    cloudOperationQueue.waitUntilAllOperationsAreFinished()
   }
 
   // MARK: - Private

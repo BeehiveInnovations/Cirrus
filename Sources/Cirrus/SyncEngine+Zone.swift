@@ -8,7 +8,7 @@ extension SyncEngine {
 
   func initializeZone(with queue: OperationQueue) -> Bool {
     self.createCustomZoneIfNeeded()
-    queue.waitUntilAllOperationsAreFinished()
+    
     guard self.createdCustomZone else { return false }
     return true
   }
@@ -62,6 +62,9 @@ extension SyncEngine {
     operation.database = privateDatabase
 
     cloudOperationQueue.addOperation(operation)
+    
+    // Wait for operation to complete
+    cloudOperationQueue.waitUntilAllOperationsAreFinished()
   }
 
   private func checkCustomZone() {
@@ -114,5 +117,8 @@ extension SyncEngine {
     operation.database = privateDatabase
 
     cloudOperationQueue.addOperation(operation)
+    
+    // Wait for operation to complete
+    cloudOperationQueue.waitUntilAllOperationsAreFinished()
   }
 }
