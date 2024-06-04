@@ -60,18 +60,22 @@ final class UploadRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
     get {
       guard let data = defaults.data(forKey: uploadBufferKey) else { return [:] }
       do {
-        return try NSKeyedUnarchiver.unarchiveTopLevelObjectWithData(data)
-          as? [CKRecord.ID: CKRecord] ?? [:]
+        return try NSKeyedUnarchiver.unarchiveTopLevelObjectWithData(data) as? [CKRecord.ID: CKRecord] ?? [:]
       } catch {
         logHandler("Failed to decode CKRecord.IDs from defaults key uploadBufferKey", .error)
         return [:]
       }
     }
     set {
+      let prevRecords = self.recordsToSave
+      
       do {
-        logHandler("Updating \(self.name) buffer with \(newValue.count) items", .info)
-        let data = try NSKeyedArchiver.archivedData(
-          withRootObject: newValue, requiringSecureCoding: true)
+        if prevRecords.count != newValue.count {
+          logHandler("Updating \(self.name) buffer with \(newValue.count) items", .info)
+        }
+        
+        let data = try NSKeyedArchiver.archivedData(withRootObject: newValue, requiringSecureCoding: true)
+        
         defaults.set(data, forKey: uploadBufferKey)
       } catch {
         logHandler("Failed to encode record ids for upload: \(String(describing: error))", .error)
