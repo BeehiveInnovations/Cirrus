@@ -73,6 +73,7 @@ public final class SyncEngine<Model: CloudKitCodable> {
 
     queue.underlyingQueue = cloudQueue
     queue.name = "SyncEngine.Cloud.\(zoneIdentifier.zoneName))"
+    queue.maxConcurrentOperationCount = 1
 
     return queue
   }()
