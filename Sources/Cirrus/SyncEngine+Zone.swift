@@ -26,8 +26,7 @@ extension SyncEngine {
 
   private func createCustomZoneIfNeeded() {
     guard !createdCustomZone else {
-      logHandler(
-        "Already have custom zone, skipping creation but checking if zone really exists", .debug)
+      logHandler("Already have custom zone, skipping creation but checking if zone really exists", .debug)
 
       checkCustomZone()
 
@@ -43,16 +42,17 @@ extension SyncEngine {
     )
 
     operation.modifyRecordZonesCompletionBlock = { [weak self] _, _, error in
-      guard let self = self else { return }
+      guard let self else { return }
 
-      if let error = error {
+      if let error {
         self.logHandler(
           "Failed to create custom CloudKit zone: \(String(describing: error))", .error)
 
         error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
           self.createCustomZoneIfNeeded()
         }
-      } else {
+      } 
+      else {
         self.logHandler("Zone created successfully", .info)
         self.createdCustomZone = true
       }
@@ -68,18 +68,14 @@ extension SyncEngine {
     let operation = CKFetchRecordZonesOperation(recordZoneIDs: [zoneIdentifier])
 
     operation.fetchRecordZonesCompletionBlock = { [weak self] ids, error in
-      guard let self = self else { return }
+      guard let self else { return }
 
-      if let error = error {
-        self.logHandler(
-          "Failed to check for custom zone existence: \(String(describing: error))", .error)
+      if let error {
+        self.logHandler("Failed to check for custom zone existence: \(String(describing: error))", .error)
 
-        if !error.retryCloudKitOperationIfPossible(
-          self.logHandler, queue: self.workQueue, with: { self.checkCustomZone() })
-        {
-          self.logHandler(
-            "Irrecoverable error when fetching custom zone, assuming it doesn't exist: \(String(describing: error))",
-            .error)
+        if !error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue, with: { self.checkCustomZone() }) {
+          
+          self.logHandler("Irrecoverable error when fetching custom zone, assuming it doesn't exist: \(String(describing: error))", .error)
 
           self.workQueue.async { [weak self] in
             guard let self else { return }
@@ -88,14 +84,21 @@ extension SyncEngine {
             self.createCustomZoneIfNeeded()
           }
         }
-      } else if ids?.isEmpty ?? true {
+      } 
+      else if ids?.isEmpty ?? true {
         self.logHandler("Custom zone reported as existing, but it doesn't exist. Creating.", .error)
+        
         self.workQueue.async { [weak self] in
           guard let self else { return }
           
           self.createdCustomZone = false
           self.createCustomZoneIfNeeded()
         }
+      }
+      else if self.createdCustomZone == false {
+        // If checking failed earlier, we set this flag to false, must reset to true if zone in fact exists, otherwise we'll keep
+        // trying to create the zone, which will always throw an error
+        self.createdCustomZone = true
       }
     }
 
