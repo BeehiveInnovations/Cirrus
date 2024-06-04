@@ -166,21 +166,18 @@ public final class SyncEngine<Model: CloudKitCodable> {
   public func forceSync(resettingToken: Bool = false) {
     logHandler(#function, .debug)
 
-    workQueue.async { [weak self] in
-      guard let self else { return }
-      
-      // Fetch changes before pushing changes. This way we avoid pushing out udpates to remotely deleted
-      // objects
-      self.pullChanges(resettingToken: resettingToken)
-      
-      // Push local updates / deletes
-      self.pushChanges()
-    }
+    // Fetch changes before pushing changes. This way we avoid pushing out udpates to remotely deleted
+    // objects
+    self.pullChanges(resettingToken: resettingToken)
+    
+    // Push local updates / deletes
+    self.pushChanges()
   }
   
   /// Fetch remote changes
   /// - Parameter resettingToken: reset the sync token to fetch everything. Default: `false`
-  public func pullChanges(resettingToken: Bool = false) {
+  /// - Parameter onCompletion: completion called after fetching remote changes. No thread guarantees.
+  public func pullChanges(resettingToken: Bool = false, onCompletion: (()->())? = nil) {
     logHandler(#function, .debug)
     
     workQueue.async { [weak self] in
@@ -193,6 +190,8 @@ public final class SyncEngine<Model: CloudKitCodable> {
       // Fetch changes before pushing changes. This way we avoid pushing out udpates to remotely deleted
       // objects
       self.fetchRemoteChanges()
+      
+      onCompletion?()
     }
   }
   
