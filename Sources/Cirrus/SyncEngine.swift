@@ -139,6 +139,23 @@ public final class SyncEngine<Model: CloudKitCodable> {
       self.modifyRecords(with: self.uploadContext)
     }
   }
+  
+  /// Check if the item is pending an upload
+  /// - Parameters:
+  ///   - model: item
+  ///   - onCompletion: called on completion. No thread guarantees
+  public func isPendingUpload(_ model: Model, onCompletion: @escaping (Bool)->()) {
+    logHandler(#function, .debug)
+    
+    workQueue.async { [weak self] in
+      guard let self else {
+        onCompletion(false)
+        return
+      }
+      
+      onCompletion(self.uploadContext.isBuffered(model))
+    }
+  }
 
   /// Delete models from CloudKit.
   public func delete(_ models: Model...) {
@@ -157,6 +174,23 @@ public final class SyncEngine<Model: CloudKitCodable> {
 
       self.deleteContext.buffer(models)
       self.modifyRecords(with: self.deleteContext)
+    }
+  }
+  
+  /// Check if the item is pending deletion
+  /// - Parameters:
+  ///   - model: item
+  ///   - onCompletion: called on completion. No thread guarantees
+  public func isPendingDelete(_ model: Model, onCompletion: @escaping (Bool)->()) {
+    logHandler(#function, .debug)
+    
+    workQueue.async { [weak self] in
+      guard let self else {
+        onCompletion(false)
+        return
+      }
+      
+      onCompletion(self.deleteContext.isBuffered(model))
     }
   }
 

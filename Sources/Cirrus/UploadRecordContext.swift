@@ -33,6 +33,20 @@ final class UploadRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
     // optimization
     updateRecordsToAdd(records)
   }
+  
+  /// Check if the item is already buffered and pending upload
+  func isBuffered(_ value: Persistable) -> Bool {
+    let record: CKRecord
+    do {
+      record = try CKRecordEncoder(zoneID: zoneID).encode(value)
+    } catch let error {
+      logHandler("Failed to encode record for buffer check: \(String(describing: error))", .error)
+      
+      return false
+    }
+    
+    return recordsToSave[record.recordID] != nil
+  }
 
   func removeFromBuffer(_ values: [Persistable]) {
     // Map Persistable items to CKRecords and collect their IDs

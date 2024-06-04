@@ -31,6 +31,20 @@ final class DeleteRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
     }
     recordIDsToDelete.append(contentsOf: recordIDs)
   }
+  
+  /// Check if the item is already buffered and pending upload
+  func isBuffered(_ value: Persistable) -> Bool {
+    let record: CKRecord
+    do {
+      record = try CKRecordEncoder(zoneID: zoneID).encode(value)
+    } catch let error {
+      logHandler("Failed to encode record for delete buffer check: \(String(describing: error))", .error)
+      
+      return false
+    }
+    
+    return recordIDsToDelete.contains(where: { $0 == record.recordID })
+  }
 
   // MARK: - RecordModifying
 
