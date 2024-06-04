@@ -5,8 +5,18 @@ import Foundation
 import os.log
 
 extension SyncEngine {
-
-  // MARK: - Internal
+  
+  // MARK: - Public
+  
+  /// Resets the delta change token to fetch everything during next sync.
+  /// Use when a full pull is requred
+  public func resetChangeToken() {
+    self.workQueue.async { [weak self] in
+      guard let self else { return }
+      
+      self.privateChangeToken = nil
+    }
+  }
 
   func fetchRemoteChanges() {
     logHandler("\(#function)", .debug)
@@ -31,14 +41,16 @@ extension SyncEngine {
 
     // Called if the record zone fetch was not fully completed
     operation.recordZoneChangeTokensUpdatedBlock = { [weak self] _, changeToken, _ in
-      guard let self = self else { return }
+      guard let self else { return }
 
       guard let changeToken = changeToken else { return }
 
       // The fetch may have failed halfway through, so we need to save the change token,
       // emit the current records, and then clear the arrays so we can re-request for the
       // rest of the data.
-      self.workQueue.async {
+      self.workQueue.async { [weak self] in
+        guard let self else { return }
+        
         self.logHandler("Commiting new change token and emitting changes", .debug)
 
         self.privateChangeToken = changeToken
@@ -60,8 +72,10 @@ extension SyncEngine {
           self.logHandler(
             "Change token expired, resetting token and trying again", .error)
 
-          self.workQueue.async {
-            self.privateChangeToken = nil
+          self.workQueue.async { [weak self] in
+            guard let self else { return }
+            
+            self.resetChangeToken()
             self.fetchRemoteChanges()
           }
         } else {
@@ -72,23 +86,30 @@ extension SyncEngine {
       } else {
         self.logHandler("Commiting new change token", .debug)
 
-        self.workQueue.async {
+        self.workQueue.async { [weak self] in
+          guard let self else { return }
+          
           self.privateChangeToken = token
         }
       }
     }
 
     operation.recordChangedBlock = { [weak self] record in
-      self?.workQueue.async {
+      guard let self else { return }
+      
+      self.workQueue.async {
         changedRecords.append(record)
       }
     }
 
     operation.recordWithIDWasDeletedBlock = { [weak self] recordID, recordType in
-      self?.workQueue.async {
-        guard let engineRecordType = self?.recordType,
-          engineRecordType == recordType
-        else { return }
+      guard let self else { return }
+      
+      self.workQueue.async { [weak self] in
+        guard let self else { return }
+        
+        guard self.recordType == recordType else { return }
+        
         deletedRecordIDs.append(recordID)
       }
     }
@@ -106,8 +127,11 @@ extension SyncEngine {
       } else {
         self.logHandler("Finished fetching record zone changes", .info)
 
-        self.workQueue.async {
+        self.workQueue.async { [weak self] in
+          guard let self else { return }
+          
           self.emitServerChanges(with: changedRecords, deletedRecordIDs: deletedRecordIDs)
+          
           changedRecords = []
           deletedRecordIDs = []
         }

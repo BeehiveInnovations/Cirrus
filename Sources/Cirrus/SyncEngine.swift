@@ -125,7 +125,9 @@ public final class SyncEngine<Model: CloudKitCodable> {
   public func upload(_ models: [Model]) {
     logHandler(#function, .debug)
 
-    workQueue.async {
+    workQueue.async { [weak self] in
+      guard let self else { return }
+      
       self.uploadContext.buffer(models)
       self.modifyRecords(with: self.uploadContext)
     }
@@ -140,7 +142,9 @@ public final class SyncEngine<Model: CloudKitCodable> {
   public func delete(_ models: [Model]) {
     logHandler(#function, .debug)
 
-    workQueue.async {
+    workQueue.async { [weak self] in
+      guard let self else { return }
+      
       // Remove any pending upload items that match the items we want to delete
       self.uploadContext.removeFromBuffer(models)
 
@@ -161,10 +165,16 @@ public final class SyncEngine<Model: CloudKitCodable> {
   public func forceSync() {
     logHandler(#function, .debug)
 
-    workQueue.async {
+    workQueue.async { [weak self] in
+      guard let self else { return }
+      
+      // Fetch changes before pushing changes. This way we avoid pushing out udpates to remotely deleted
+      // objects
+      self.fetchRemoteChanges()
+      
+      // Push local updates / deletes
       self.performUpdate(with: self.uploadContext)
       self.performUpdate(with: self.deleteContext)
-      self.fetchRemoteChanges()
     }
   }
 
@@ -194,7 +204,9 @@ public final class SyncEngine<Model: CloudKitCodable> {
     logHandler("Received remote CloudKit notification for user data", .debug)
 
     self.workQueue.async { [weak self] in
-      self?.fetchRemoteChanges()
+      guard let self else { return }
+      
+      self.fetchRemoteChanges()
     }
 
     return true
@@ -204,7 +216,7 @@ public final class SyncEngine<Model: CloudKitCodable> {
 
   private func setupCloudEnvironment() {
     workQueue.async { [weak self] in
-      guard let self = self else { return }
+      guard let self else { return }
 
       // Initialize CloudKit with private custom zone, but bail early if we fail
       guard self.initializeZone(with: self.cloudOperationQueue) else {
@@ -220,9 +232,13 @@ public final class SyncEngine<Model: CloudKitCodable> {
       }
       self.logHandler("Cloud environment preparation done", .debug)
 
+      // Fetch changes before pushing changes. This way we avoid pushing out udpates to remotely deleted
+      // objects
+      self.fetchRemoteChanges()
+      
+      // Push local updates / deletes
       self.performUpdate(with: self.uploadContext)
       self.performUpdate(with: self.deleteContext)
-      self.fetchRemoteChanges()
     }
   }
 }

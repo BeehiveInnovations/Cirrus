@@ -73,7 +73,7 @@ extension SyncEngine {
     let operation = CKFetchSubscriptionsOperation(subscriptionIDs: [privateSubscriptionIdentifier])
 
     operation.fetchSubscriptionCompletionBlock = { [weak self] ids, error in
-      guard let self = self else { return }
+      guard let self else { return }
 
       if let error = error {
         self.logHandler(
@@ -87,7 +87,9 @@ extension SyncEngine {
             "Irrecoverable error when fetching private zone subscription, assuming it doesn't exist: \(String(describing: error))",
             .error)
 
-          self.workQueue.async {
+          self.workQueue.async { [weak self] in
+            guard let self else { return }
+            
             self.createdPrivateSubscription = false
             self.createPrivateSubscriptionsIfNeeded()
           }
@@ -97,7 +99,9 @@ extension SyncEngine {
           "Private subscription reported as existing, but it doesn't exist. Creating.", .error
         )
 
-        self.workQueue.async {
+        self.workQueue.async { [weak self] in
+          guard let self else { return }
+          
           self.createdPrivateSubscription = false
           self.createPrivateSubscriptionsIfNeeded()
         }

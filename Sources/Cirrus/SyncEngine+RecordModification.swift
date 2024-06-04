@@ -42,12 +42,14 @@ extension SyncEngine {
       recordsToSave: recordsToSave, recordIDsToDelete: recordIDsToDelete)
 
     operation.modifyRecordsCompletionBlock = { [weak self] serverRecords, deletedRecordIDs, error in
-      guard let self = self else { return }
+      guard let self else { return }
 
       if let error = error {
         self.logHandler("Failed to \(context.name) records: \(String(describing: error))", .error)
 
-        self.workQueue.async {
+        self.workQueue.async { [weak self] in
+          guard let self else { return }
+          
           self.handleError(
             error,
             toSave: recordsToSave,
@@ -60,7 +62,9 @@ extension SyncEngine {
           "Successfully \(context.name) record(s). Saved \(recordsToSave.count) and deleted \(recordIDsToDelete.count)",
           .info)
 
-        self.workQueue.async {
+        self.workQueue.async { [weak self] in
+          guard let self else { return }
+          
           self.modelsChangedSubject.send(
             context.modelChangeForUpdatedRecords(
               recordsSaved: serverRecords ?? [],

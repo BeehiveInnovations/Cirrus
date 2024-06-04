@@ -81,14 +81,18 @@ extension SyncEngine {
             "Irrecoverable error when fetching custom zone, assuming it doesn't exist: \(String(describing: error))",
             .error)
 
-          self.workQueue.async {
+          self.workQueue.async { [weak self] in
+            guard let self else { return }
+            
             self.createdCustomZone = false
             self.createCustomZoneIfNeeded()
           }
         }
       } else if ids?.isEmpty ?? true {
         self.logHandler("Custom zone reported as existing, but it doesn't exist. Creating.", .error)
-        self.workQueue.async {
+        self.workQueue.async { [weak self] in
+          guard let self else { return }
+          
           self.createdCustomZone = false
           self.createCustomZoneIfNeeded()
         }
