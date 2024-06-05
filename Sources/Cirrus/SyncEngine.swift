@@ -5,6 +5,16 @@ import Foundation
 import os.log
 
 public final class SyncEngine<Model: CloudKitCodable> {
+  
+  /// Represents the model changes
+  public struct ModelChanges {
+    public var updates: ModelChange?
+    public var deletes: ModelChange?
+    
+    /// Change token associated with these changes. The caller must call SyncEngine
+    /// This is only required when changeToken is not `nil`
+    public var changeToken: CKServerChangeToken?
+  }
 
   public enum ModelChange {
     /// Pulled deletes from CloudKit
@@ -20,7 +30,7 @@ public final class SyncEngine<Model: CloudKitCodable> {
 
   // MARK: - Public Properties
 
-  /// A publisher that sends a `ModelChange` when models are updated or deleted on iCloud. No thread guarantees.
+  /// A publisher that sends a `ModelChanges` when models are updated or deleted on iCloud. No thread guarantees.
   public private(set) lazy var modelsChanged = modelsChangedSubject.eraseToAnyPublisher()
 
   /// The current iCloud account status for the user.
@@ -61,7 +71,7 @@ public final class SyncEngine<Model: CloudKitCodable> {
   lazy var privateDatabase: CKDatabase = container.privateCloudDatabase
 
   var cancellables = Set<AnyCancellable>()
-  let modelsChangedSubject = PassthroughSubject<ModelChange, Never>()
+  let modelsChangedSubject = PassthroughSubject<ModelChanges, Never>()
 
   private lazy var uploadContext: UploadRecordContext<Model> = UploadRecordContext(
     defaults: defaults, zoneID: zoneIdentifier, logHandler: logHandler)
@@ -270,6 +280,26 @@ public final class SyncEngine<Model: CloudKitCodable> {
       // Push local updates / deletes
       self.performUpdate(with: self.uploadContext)
       self.performUpdate(with: self.deleteContext)
+    }
+  }
+  
+  /// Users of SyncEngine must call this method to update the server's change token after consuming `ModelChanges`
+  /// so that the token is not inadvertently saved before changes have been processed. Power failure, other fatal crashes
+  /// may prevent the caller from successfully consuming these changes.
+  /// - Parameter changeToken: new change token
+  public func updateChangeToken(_ changeToken: CKServerChangeToken?) {
+    guard let changeToken else {
+      self.logHandler("Ignored commiting empty change token", .info)
+      
+      return
+    }
+    
+    workQueue.async { [weak self] in
+      guard let self else { return }
+      
+      self.logHandler("Commiting new change token and emitting changes", .info)
+      
+      self.privateChangeToken = changeToken
     }
   }
 

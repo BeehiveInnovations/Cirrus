@@ -39,62 +39,7 @@ extension SyncEngine {
     operation.recordZoneIDs = [zoneIdentifier]
     operation.fetchAllChanges = true
 
-    // Called if the record zone fetch was not fully completed
-    operation.recordZoneChangeTokensUpdatedBlock = { [weak self] _, newChangeToken, _ in
-      guard let self else { return }
-
-      guard let newChangeToken else { return }
-
-      // The fetch may have failed halfway through, so we need to save the change token,
-      // emit the current records, and then clear the arrays so we can re-request for the
-      // rest of the data.
-      self.workQueue.async { [weak self] in
-        guard let self else { return }
-        
-        self.logHandler("Commiting new change token and emitting changes", .debug)
-
-        self.privateChangeToken = newChangeToken
-        self.emitServerChanges(with: changedRecords, deletedRecordIDs: deletedRecordIDs)
-        changedRecords = []
-        deletedRecordIDs = []
-      }
-    }
-
-    // Called after the record zone fetch completes
-    operation.recordZoneFetchCompletionBlock = { [weak self] _, newChangeToken, _, _, error in
-      guard let self else { return }
-
-      if let error = error as? CKError {
-        self.logHandler(
-          "Failed to fetch record zone changes: \(String(describing: error))", .error)
-
-        if error.code == .changeTokenExpired {
-          self.logHandler("Change token expired, resetting token and trying again", .error)
-
-          self.workQueue.async { [weak self] in
-            guard let self else { return }
-            
-            self.resetChangeToken()
-            self.fetchRemoteChanges()
-          }
-        } 
-        else {
-          error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
-            self.fetchRemoteChanges()
-          }
-        }
-      } 
-      else {
-        self.logHandler("Commiting new change token", .debug)
-
-        self.workQueue.async { [weak self] in
-          guard let self else { return }
-          
-          self.privateChangeToken = newChangeToken
-        }
-      }
-    }
-
+    // Take individually changed record
     operation.recordChangedBlock = { [weak self] record in
       guard let self else { return }
       
@@ -103,6 +48,7 @@ extension SyncEngine {
       }
     }
 
+    // Take individually deleted record
     operation.recordWithIDWasDeletedBlock = { [weak self] recordID, recordType in
       guard let self else { return }
       
@@ -114,7 +60,76 @@ extension SyncEngine {
         deletedRecordIDs.append(recordID)
       }
     }
+    
+    // The closure to execute when the change token updates. This can be an intermediate
+    // change token in during the many fetches it may need to perform. We must NOT
+    // save this token until the observer has had a chance to process the changes.
+    //
+    // When we're here, we emit changes along with the intermediate change token and wait for more changes to come in
+    operation.recordZoneChangeTokensUpdatedBlock = { [weak self] _, newChangeToken, _ in
+      guard let self else { return }
+      
+      guard let newChangeToken else { return }
+      
+      // The fetch may have failed halfway through, so we need to save the change token,
+      // emit the current records, and then clear the arrays so we can re-request for the
+      // rest of the data.
+      self.workQueue.async { [weak self] in
+        guard let self else { return }
+        
+        self.emitServerChanges(with: changedRecords, deletedRecordIDs: deletedRecordIDs, andChangeToken: newChangeToken)
+        
+        changedRecords.removeAll()
+        deletedRecordIDs.removeAll()
+      }
+    }
+    
+    // Called after the record zone fetch completes
+    operation.recordZoneFetchCompletionBlock = { [weak self] _, newChangeToken, _, _, error in
+      guard let self else { return }
+      
+      if let error = error as? CKError {
+        self.logHandler("Failed to fetch record zone changes: \(String(describing: error))", .error)
+        
+        if error.code == .changeTokenExpired {
+          self.logHandler("Change token expired, resetting token and trying again", .error)
+          
+          self.workQueue.async { [weak self] in
+            guard let self else { return }
+            
+            self.resetChangeToken()
+            self.fetchRemoteChanges()
+          }
+        }
+        else {
+          error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
+            self.fetchRemoteChanges()
+          }
+        }
+      }
+      else {
+        self.workQueue.async { [weak self] in
+          guard let self else { return }
 
+          if deletedRecordIDs.isEmpty && changedRecords.isEmpty {
+            self.logHandler("Fetch completed", .info)
+          }
+          else {
+            self.logHandler("Finalizing fetch...", .info)
+          }
+
+          self.emitServerChanges(with: changedRecords,
+                                 deletedRecordIDs: deletedRecordIDs,
+                                 andChangeToken: newChangeToken)
+          
+          changedRecords.removeAll()
+          deletedRecordIDs.removeAll()
+        }
+      }
+    }
+
+
+    // Called after the entire fetch operation completes for all zones
     operation.fetchRecordZoneChangesCompletionBlock = { [weak self] error in
       guard let self else { return }
 
@@ -127,15 +142,6 @@ extension SyncEngine {
       } 
       else {
         self.logHandler("Finished fetching record zone changes", .info)
-
-        self.workQueue.async { [weak self] in
-          guard let self else { return }
-          
-          self.emitServerChanges(with: changedRecords, deletedRecordIDs: deletedRecordIDs)
-          
-          changedRecords = []
-          deletedRecordIDs = []
-        }
       }
     }
 
@@ -150,7 +156,7 @@ extension SyncEngine {
 
   // MARK: - Private
 
-  private var privateChangeToken: CKServerChangeToken? {
+  internal var privateChangeToken: CKServerChangeToken? {
     get {
       guard let data = defaults.data(forKey: privateChangeTokenKey) else { return nil }
       guard !data.isEmpty else { return nil }
@@ -184,15 +190,15 @@ extension SyncEngine {
     }
   }
 
-  private func emitServerChanges(with changedRecords: [CKRecord], deletedRecordIDs: [CKRecord.ID]) {
+  private func emitServerChanges(with changedRecords: [CKRecord], 
+                                 deletedRecordIDs: [CKRecord.ID],
+                                 andChangeToken changeToken: CKServerChangeToken?) {
     guard !changedRecords.isEmpty || !deletedRecordIDs.isEmpty else {
       logHandler("Finished record zone changes fetch with no changes", .info)
       return
     }
 
-    logHandler(
-      "Will emit \(changedRecords.count) changed record(s) and \(deletedRecordIDs.count) deleted record(s)",
-      .info)
+    logHandler("Will emit \(changedRecords.count) changed record(s) and \(deletedRecordIDs.count) deleted record(s)", .info)
 
     let models: Set<Model> = Set(
       changedRecords.compactMap { record in
@@ -208,7 +214,8 @@ extension SyncEngine {
 
     let deletedIdentifiers = Set(deletedRecordIDs.map(\.recordName))
 
-    modelsChangedSubject.send(.updatesPulled(models))
-    modelsChangedSubject.send(.deletesPulled(deletedIdentifiers))
+    modelsChangedSubject.send(.init(updates: .updatesPulled(models),
+                                    deletes: .deletesPulled(deletedIdentifiers),
+                                    changeToken: changeToken))
   }
 }

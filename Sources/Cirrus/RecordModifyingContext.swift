@@ -10,6 +10,6 @@ protocol RecordModifyingContextProvider {
   var name: String { get }
   var savePolicy: CKModifyRecordsOperation.RecordSavePolicy { get }
   
-  func modelChangeForUpdatedRecords<T>(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]) -> SyncEngine<T>.ModelChange
+  func modelChangeForUpdatedRecords<T>(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]) -> SyncEngine<T>.ModelChanges
   func failedToUpdateRecords(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID])
 }

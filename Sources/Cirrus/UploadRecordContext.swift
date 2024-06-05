@@ -89,7 +89,7 @@ final class UploadRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
 
   var recordIDsToDelete: [CKRecord.ID] = []
 
-  func modelChangeForUpdatedRecords<T: CloudKitCodable>(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]) -> SyncEngine<T>.ModelChange {
+  func modelChangeForUpdatedRecords<T: CloudKitCodable>(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]) -> SyncEngine<T>.ModelChanges {
     let models: Set<T> = Set(
       recordsSaved.compactMap { record in
         do {
@@ -103,7 +103,7 @@ final class UploadRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
 
     updateRecordsToRemove(recordsSaved)
 
-    return .updatesPushed(models)
+    return .init(updates: .updatesPushed(models), deletes: nil, changeToken: nil)
   }
 
   func failedToUpdateRecords(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]) {
