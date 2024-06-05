@@ -168,7 +168,7 @@ extension SyncEngine {
           let unknownRecords = recordsToSave.filter { unknownItemRecordIDs.contains($0.recordID) }
           let unknownDeletedIDs = recordIDsToDelete.filter(unknownItemRecordIDs.contains)
           
-          self.unknownModelChangesSubject.send(
+          self.modelsChangedSubject.send(
             context.failedToUpdateRecords(
               recordsSaved: unknownRecords,
               recordIDsDeleted: unknownDeletedIDs
@@ -233,7 +233,7 @@ extension SyncEngine {
         if !result {
           logHandler("Error is not recoverable: \( String(describing: error))", .error)
           
-          self.fatalModelChangesSubject.send(
+          self.modelsChangedSubject.send(
             context.failedToUpdateRecords(recordsSaved: recordsToSave, recordIDsDeleted: recordIDsToDelete)
           )
         }

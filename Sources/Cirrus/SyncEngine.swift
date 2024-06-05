@@ -59,12 +59,6 @@ public final class SyncEngine<Model: CloudKitCodable> {
   /// A publisher that sends a `ModelChanges` when models are updated or deleted on iCloud. No thread guarantees.
   public private(set) lazy var modelsChanged = modelsChangedSubject.eraseToAnyPublisher()
   
-  /// A publisher that sends a `ModelChanges` when models are updated or deleted on iCloud. No thread guarantees.
-  public private(set) lazy var unknownModelChanges = unknownModelChangesSubject.eraseToAnyPublisher()
-
-  /// A publisher that sends a `ModelChanges` when models are updated or deleted on iCloud. No thread guarantees.
-  public private(set) lazy var fatalModelChanges = fatalModelChangesSubject.eraseToAnyPublisher()
-
   /// The current iCloud account status for the user.
   @Published public internal(set) var accountStatus: AccountStatus = .unknown {
     willSet {
@@ -104,8 +98,6 @@ public final class SyncEngine<Model: CloudKitCodable> {
 
   var cancellables = Set<AnyCancellable>()
   let modelsChangedSubject = PassthroughSubject<ModelChanges, Never>()
-  let unknownModelChangesSubject = PassthroughSubject<ModelChanges, Never>()
-  let fatalModelChangesSubject = PassthroughSubject<ModelChanges, Never>()
 
   private lazy var uploadContext: UploadRecordContext<Model> = UploadRecordContext(
     defaults: defaults, zoneID: zoneIdentifier, logHandler: logHandler)
