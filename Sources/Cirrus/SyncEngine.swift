@@ -323,7 +323,7 @@ public final class SyncEngine<Model: CloudKitCodable> {
     workQueue.async { [weak self] in
       guard let self else { return }
       
-      self.logHandler("Commiting new change token and emitting changes", .info)
+      self.logHandler("Commiting new change token", .info)
       
       self.privateChangeToken = changeToken
     }

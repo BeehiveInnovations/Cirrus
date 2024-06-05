@@ -198,7 +198,7 @@ extension SyncEngine {
       return
     }
 
-    logHandler("Will emit \(changedRecords.count) changed record(s) and \(deletedRecordIDs.count) deleted record(s)", .info)
+    logHandler("Fetched \(changedRecords.count) changed record(s) and \(deletedRecordIDs.count) deleted record(s)", .info)
 
     let models: Set<Model> = Set(
       changedRecords.compactMap { record in
