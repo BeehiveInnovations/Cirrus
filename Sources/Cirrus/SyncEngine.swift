@@ -11,9 +11,30 @@ public final class SyncEngine<Model: CloudKitCodable> {
     public var updates: ModelChange?
     public var deletes: ModelChange?
     
+    /// Updates that the server does not recognize. Caller may decide to delete these locally or re-add by clearing out cloudkit meta data
+    public var unknownUpdates: ModelChange?
+    /// Items that the server no longer contains
+    public var unknownDeletes: ModelChange?
+    
     /// Change token associated with these changes. The caller must call SyncEngine
     /// This is only required when changeToken is not `nil`
     public var changeToken: CKServerChangeToken?
+    
+    public init(updates: SyncEngine<Model>.ModelChange? = nil, 
+                deletes: SyncEngine<Model>.ModelChange? = nil,
+                unknownUpdates: SyncEngine<Model>.ModelChange? = nil,
+                unknownDeletes: SyncEngine<Model>.ModelChange? = nil,
+                changeToken: CKServerChangeToken? = nil) {
+      self.updates = updates
+      self.deletes = deletes
+      self.unknownUpdates = unknownUpdates
+      self.unknownDeletes = unknownDeletes
+      self.changeToken = changeToken
+    }
+  }
+  
+  /// Represents unknown changes sent to CloudKit
+  public struct UnknownChanges {
   }
 
   public enum ModelChange {
@@ -26,12 +47,23 @@ public final class SyncEngine<Model: CloudKitCodable> {
     case deletesPushed(Set<CloudKitIdentifier>)
     /// Items updated (on CloudKit) successfully
     case updatesPushed(Set<Model>)
+    
+    /// Deleted item IDs pushed to CloudKit that it does not recognize
+    case unknownItemsDeleted(Set<CloudKitIdentifier>)
+    /// Deleted items pushed to CloudKit that it does not recognize
+    case unknownItemsPushed(Set<Model>)
   }
 
   // MARK: - Public Properties
 
   /// A publisher that sends a `ModelChanges` when models are updated or deleted on iCloud. No thread guarantees.
   public private(set) lazy var modelsChanged = modelsChangedSubject.eraseToAnyPublisher()
+  
+  /// A publisher that sends a `ModelChanges` when models are updated or deleted on iCloud. No thread guarantees.
+  public private(set) lazy var unknownModelChanges = unknownModelChangesSubject.eraseToAnyPublisher()
+
+  /// A publisher that sends a `ModelChanges` when models are updated or deleted on iCloud. No thread guarantees.
+  public private(set) lazy var fatalModelChanges = fatalModelChangesSubject.eraseToAnyPublisher()
 
   /// The current iCloud account status for the user.
   @Published public internal(set) var accountStatus: AccountStatus = .unknown {
@@ -72,6 +104,8 @@ public final class SyncEngine<Model: CloudKitCodable> {
 
   var cancellables = Set<AnyCancellable>()
   let modelsChangedSubject = PassthroughSubject<ModelChanges, Never>()
+  let unknownModelChangesSubject = PassthroughSubject<ModelChanges, Never>()
+  let fatalModelChangesSubject = PassthroughSubject<ModelChanges, Never>()
 
   private lazy var uploadContext: UploadRecordContext<Model> = UploadRecordContext(
     defaults: defaults, zoneID: zoneIdentifier, logHandler: logHandler)

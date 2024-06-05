@@ -86,10 +86,14 @@ final class DeleteRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
 
     recordIDsToDelete.removeAll { recordIDsDeleted.contains($0) }
 
-    return .init(updates: nil, deletes: .deletesPushed(recordIdentifiersDeletedSet), changeToken: nil)
+    return .init(deletes: .deletesPushed(recordIdentifiersDeletedSet))
   }
 
-  func failedToUpdateRecords(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]) {
+  func failedToUpdateRecords<T: CloudKitCodable>(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]) -> SyncEngine<T>.ModelChanges {
+    let recordIdentifiersDeletedSet = Set(recordIDsDeleted.map(\.recordName))
+    
     recordIDsToDelete.removeAll { recordIDsDeleted.contains($0) }
+    
+    return .init(unknownDeletes: .unknownItemsDeleted(recordIdentifiersDeletedSet))
   }
 }

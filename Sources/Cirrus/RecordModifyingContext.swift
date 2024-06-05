@@ -11,5 +11,5 @@ protocol RecordModifyingContextProvider {
   var savePolicy: CKModifyRecordsOperation.RecordSavePolicy { get }
   
   func modelChangeForUpdatedRecords<T>(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]) -> SyncEngine<T>.ModelChanges
-  func failedToUpdateRecords(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID])
+  func failedToUpdateRecords<T>(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]) -> SyncEngine<T>.ModelChanges
 }

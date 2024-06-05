@@ -103,11 +103,24 @@ final class UploadRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
 
     updateRecordsToRemove(recordsSaved)
 
-    return .init(updates: .updatesPushed(models), deletes: nil, changeToken: nil)
+    return .init(updates: .updatesPushed(models))
   }
 
-  func failedToUpdateRecords(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]) {
+  func failedToUpdateRecords<T: CloudKitCodable>(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]) -> SyncEngine<T>.ModelChanges {
+    let models: Set<T> = Set(
+      recordsSaved.compactMap { record in
+        do {
+          let decoder = CKRecordDecoder()
+          return try decoder.decode(T.self, from: record)
+        } catch {
+          logHandler("Error decoding item from record: \(String(describing: error))", .error)
+          return nil
+        }
+      })
+    
     updateRecordsToRemove(recordsSaved)
+    
+    return .init(unknownUpdates: .unknownItemsPushed(models))
   }
   
   /// Optimized save to `recordsToSave`

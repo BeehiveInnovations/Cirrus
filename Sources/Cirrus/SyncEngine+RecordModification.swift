@@ -87,6 +87,8 @@ extension SyncEngine {
     switch ckError {
         
       case _ where ckError.isCloudKitZoneDeleted:
+        // If the CloudKit zone is deleted, the code logs this and attempts to recreate the zone. After recreating, it retries the modify operation.
+        
         logHandler("Zone was deleted, recreating zone: \(String(describing: error))", .error)
         
         guard initializeZone(with: self.cloudOperationQueue) else {
@@ -102,6 +104,9 @@ extension SyncEngine {
         )
         
       case _ where ckError.code == CKError.Code.limitExceeded:
+        // The operation splits the record saves and deletions into smaller chunks and retries them separately. 
+        // This is done to comply with CloudKit's limitations on batch sizes.
+        
         logHandler("CloudKit batch limit exceeded, trying to \(context.name) records in chunks", .error)
         
         let firstHalfSave = Array(recordsToSave[0..<recordsToSave.count / 2])
@@ -160,9 +165,14 @@ extension SyncEngine {
               return false
             }).keys)
           
-          context.failedToUpdateRecords(
-            recordsSaved: recordsToSave.filter { unknownItemRecordIDs.contains($0.recordID) },
-            recordIDsDeleted: recordIDsToDelete.filter(unknownItemRecordIDs.contains)
+          let unknownRecords = recordsToSave.filter { unknownItemRecordIDs.contains($0.recordID) }
+          let unknownDeletedIDs = recordIDsToDelete.filter(unknownItemRecordIDs.contains)
+          
+          self.unknownModelChangesSubject.send(
+            context.failedToUpdateRecords(
+              recordsSaved: unknownRecords,
+              recordIDsDeleted: unknownDeletedIDs
+            )
           )
           
           let recordsToSaveWithoutUnknowns =
@@ -175,9 +185,7 @@ extension SyncEngine {
             .filter(recordIDsNotSavedOrDeleted.contains)
             .filter { !unknownItemRecordIDs.contains($0) }
           
-          let resolvedConflictsToSave =
-          serverRecordChangedErrors
-            .compactMap { $0.resolveConflict(logHandler, with: Model.resolveConflict) }
+          let resolvedConflictsToSave = serverRecordChangedErrors.compactMap { $0.resolveConflict(logHandler, with: Model.resolveConflict) }
           
           let conflictsToSaveSet = Set(resolvedConflictsToSave.map(\.recordID))
           let batchRequestFailureRecordsToSave = recordsToSaveWithoutUnknowns.filter {
@@ -225,8 +233,9 @@ extension SyncEngine {
         if !result {
           logHandler("Error is not recoverable: \( String(describing: error))", .error)
           
-          context.failedToUpdateRecords(recordsSaved: recordsToSave, recordIDsDeleted: recordIDsToDelete)
-          
+          self.fatalModelChangesSubject.send(
+            context.failedToUpdateRecords(recordsSaved: recordsToSave, recordIDsDeleted: recordIDsToDelete)
+          )
         }
     }
   }
