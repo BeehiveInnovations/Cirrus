@@ -341,7 +341,6 @@ public final class SyncEngine<Model: CloudKitCodable> {
     logHandler(#function, .debug)
 
     guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) else {
-      logHandler("Not a CKNotification", .error)
       return false
     }
 
