@@ -281,9 +281,7 @@ public final class SyncEngine<Model: CloudKitCodable> {
       
       // Fetch changes before pushing changes. This way we avoid pushing out udpates to remotely deleted
       // objects
-      self.fetchRemoteChanges()
-      
-      onCompletion?()
+      self.fetchRemoteChanges(onCompletion: onCompletion)
     }
   }
   
@@ -379,14 +377,6 @@ public final class SyncEngine<Model: CloudKitCodable> {
         return
       }
       self.logHandler("Cloud environment preparation done", .debug)
-
-      // Fetch changes before pushing changes. This way we avoid pushing out udpates to remotely deleted
-      // objects
-      self.fetchRemoteChanges()
-      
-      // Push local updates / deletes
-      self.performUpdate(with: self.uploadContext)
-      self.performUpdate(with: self.deleteContext)
     }
   }
 }

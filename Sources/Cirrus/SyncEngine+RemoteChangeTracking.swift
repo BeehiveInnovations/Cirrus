@@ -18,7 +18,7 @@ extension SyncEngine {
     }
   }
 
-  func fetchRemoteChanges() {
+  func fetchRemoteChanges(onCompletion: (()->())? = nil) {
     logHandler("\(#function)", .debug)
 
     // Dictionary to hold the latest version of each changed record
@@ -79,12 +79,12 @@ extension SyncEngine {
             self.logHandler("Change token expired, resetting token and trying again", .error)
 
             self.resetChangeToken()
-            self.fetchRemoteChanges()
+            self.fetchRemoteChanges(onCompletion: onCompletion)
           }
         }
         else {
           error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
-            self.fetchRemoteChanges()
+            self.fetchRemoteChanges(onCompletion: onCompletion)
           }
         }
       }
@@ -120,11 +120,13 @@ extension SyncEngine {
         self.logHandler("Failed to fetch record zone changes: \(String(describing: error))", .error)
 
         error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
-          self.fetchRemoteChanges()
+          self.fetchRemoteChanges(onCompletion: onCompletion)
         }
       } 
       else {
         self.logHandler("Finished fetching record zone changes", .info)
+        
+        onCompletion?()
       }
     }
 
