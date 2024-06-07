@@ -12,6 +12,8 @@ final class UploadRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
 
   private lazy var uploadBufferKey = "UPLOADBUFFER-\(zoneID.zoneName))"
 
+  var recordIDsToDelete: [CKRecord.ID] = []
+
   init(
     defaults: UserDefaults, zoneID: CKRecordZone.ID,
     logHandler: @escaping (String, OSLogType) -> Void
@@ -24,33 +26,19 @@ final class UploadRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
   func buffer(_ values: [Persistable]) {
     let records: [CKRecord]
     do {
-      records = try values.map { try CKRecordEncoder(zoneID: zoneID).encode($0) }
+      records = try values.map { try encodedRecord($0) }
     } catch let error {
       logHandler("Failed to encode records for upload: \(String(describing: error))", .error)
-      records = values.compactMap { try? CKRecordEncoder(zoneID: zoneID).encode($0) }
+      records = values.compactMap { try? encodedRecord($0) }
     }
     
     // optimization
     updateRecordsToAdd(records)
   }
   
-  /// Check if the item is already buffered and pending upload
-  func isBuffered(_ value: Persistable) -> Bool {
-    let record: CKRecord
-    do {
-      record = try CKRecordEncoder(zoneID: zoneID).encode(value)
-    } catch let error {
-      logHandler("Failed to encode record for buffer check: \(String(describing: error))", .error)
-      
-      return false
-    }
-    
-    return recordsToSave[record.recordID] != nil
-  }
-
   func removeFromBuffer(_ values: [Persistable]) {
     // Map Persistable items to CKRecords and collect their IDs
-    let recordIDsToRemove = values.compactMap { try? CKRecordEncoder(zoneID: zoneID).encode($0) }.map { $0.recordID }
+    let recordIDsToRemove = values.compactMap { try? encodedRecord($0) }.map { $0.recordID }
     
     updateRecordsIDToRemove(recordIDsToRemove)
   }
@@ -58,7 +46,6 @@ final class UploadRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
   // MARK: - RecordModifying
 
   let name = "upload"
-  let savePolicy: CKModifyRecordsOperation.RecordSavePolicy = .ifServerRecordUnchanged
 
   var recordsToSave: [CKRecord.ID: CKRecord] {
     get {
@@ -87,8 +74,10 @@ final class UploadRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
     }
   }
 
-  var recordIDsToDelete: [CKRecord.ID] = []
-
+  func encodedRecord<T: CloudKitCodable>(_ obj: T) throws -> CKRecord {
+    try CKRecordEncoder(zoneID: zoneID).encode(obj)
+  }
+  
   func modelChangeForUpdatedRecords<T: CloudKitCodable>(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]) -> SyncEngine<T>.ModelChanges {
     let models: Set<T> = Set(
       recordsSaved.compactMap { record in

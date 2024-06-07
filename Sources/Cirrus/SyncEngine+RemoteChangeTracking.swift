@@ -8,28 +8,29 @@ extension SyncEngine {
   
   // MARK: - Public
   
-  /// Resets the delta change token to fetch everything during next sync.
-  /// Use when a full pull is requred
-  public func resetChangeToken() {
-    self.workQueue.async { [weak self] in
-      guard let self else { return }
-      
-      self.privateChangeToken = nil
-    }
-  }
-
-  func fetchRemoteChanges(onCompletion: (()->())? = nil) {
+  /// Fetch remote changes
+  /// - Parameter onCompletion: pass a completion block that gets called only after changes have beel pulled, emitted and consumed
+  func fetchRemoteChanges(onCompletion: ((Result<SyncEngine<Model>.ModelChanges, Error>) -> Void)? = nil) {
     logHandler("\(#function)", .debug)
 
     // Dictionary to hold the latest version of each changed record
     var latestChangedRecords = [CKRecord.ID: CKRecord]()
     var deletedRecordIDs: [CKRecord.ID] = []
+    
+    // Completion handler invocation guard
+    let useCompletion = onCompletion != nil
+    var completionCalled = false
+    let callCompletion: (Result<SyncEngine<Model>.ModelChanges, Error>) -> Void = { result in
+      if !completionCalled {
+        completionCalled = true
+        onCompletion?(result)
+      }
+    }
+    
     let operation = CKFetchRecordZoneChangesOperation()
 
-    let token: CKServerChangeToken? = privateChangeToken
-
     let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration(
-      previousServerChangeToken: token,
+      previousServerChangeToken: privateChangeToken,
       resultsLimit: nil,
       desiredKeys: nil
     )
@@ -66,25 +67,39 @@ extension SyncEngine {
     }
     
     // Called after the record zone fetch completes
-    operation.recordZoneFetchCompletionBlock = { [weak self] _, newChangeToken, _, _, error in
+    operation.recordZoneFetchCompletionBlock = { [weak self] _, newChangeToken, _, isFinalChange, error in
       guard let self else { return }
       
       if let error = error as? CKError {
-        self.logHandler("Failed to fetch record zone changes: \(String(describing: error))", .error)
+        self.logHandler("Failed to fetch record zone changes (final? \(isFinalChange ? "yes" : "no")): \(String(describing: error))", .error)
+        
+        assert(isFinalChange, "Can errors be returned when this isn't the final change?")
+        
+        // Clear accumulated changes as we'll be trying again
+        latestChangedRecords.removeAll()
+        deletedRecordIDs.removeAll()
         
         if error.code == .changeTokenExpired {
           self.workQueue.async { [weak self] in
             guard let self else { return }
 
             self.logHandler("Change token expired, resetting token and trying again", .error)
-
-            self.resetChangeToken()
-            self.fetchRemoteChanges(onCompletion: onCompletion)
+            
+            self.privateChangeToken = nil
+            self.fetchRemoteChanges(onCompletion: callCompletion)
           }
         }
         else {
-          error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
-            self.fetchRemoteChanges(onCompletion: onCompletion)
+          let result = error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
+            self.fetchRemoteChanges(onCompletion: callCompletion)
+          }
+          
+          if !result {
+            logHandler("Fetch is not possible: \( String(describing: error))", .error)
+            
+            self.workQueue.async {
+              callCompletion(.failure(error))
+            }
           }
         }
       }
@@ -92,18 +107,27 @@ extension SyncEngine {
         self.workQueue.async { [weak self] in
           guard let self else { return }
 
-          if deletedRecordIDs.isEmpty && latestChangedRecords.isEmpty {
-            self.logHandler("Fetch completed for zone: \(zoneIdentifier)", .info)
-          }
-          else {
-            self.logHandler("Finalizing fetch...", .info)
-          }
-
           let changedRecords = Array(latestChangedRecords.values)
           
-          self.emitServerChanges(with: changedRecords,
-                                 deletedRecordIDs: deletedRecordIDs,
-                                 andChangeToken: newChangeToken)
+          if deletedRecordIDs.isEmpty && latestChangedRecords.isEmpty {
+            self.logHandler("Fetch completed [\(changedRecords.count) changes, \(deletedRecordIDs.count) deletes]", .info)
+          }
+          else {
+            self.logHandler("Finalizing fetch [\(changedRecords.count) changes, \(deletedRecordIDs.count) deletes]", .info)
+          }
+          
+          if useCompletion {
+            // When using a completion block, accumulated changes are returned at once
+            callCompletion(.success(makeModelChanges(with: changedRecords,
+                                                     deletedRecordIDs: deletedRecordIDs,
+                                                     andChangeToken: newChangeToken)))
+          }
+          else {
+            self.emitServerChanges(with: changedRecords,
+                                   deletedRecordIDs: deletedRecordIDs,
+                                   andChangeToken: newChangeToken)
+            
+          }
           
           latestChangedRecords.removeAll()
           deletedRecordIDs.removeAll()
@@ -119,14 +143,24 @@ extension SyncEngine {
       if let error {
         self.logHandler("Failed to fetch record zone changes: \(String(describing: error))", .error)
 
-        error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
-          self.fetchRemoteChanges(onCompletion: onCompletion)
+        let result = error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
+          self.fetchRemoteChanges(onCompletion: callCompletion)
         }
-      } 
+        
+        if !result {
+          logHandler("Fetch operation is not possible: \( String(describing: error))", .error)
+          
+          self.workQueue.async {
+            callCompletion(.failure(error))
+          }
+        }
+      }
       else {
         self.logHandler("Finished fetching record zone changes", .info)
         
-        onCompletion?()
+        // DO NOT CALL COMPLETION HERE - Upon a successful fetch we expect
+        // recordZoneFetchCompletionBlock to have completed with the appropriate
+        // change-token and final changes.
       }
     }
 
@@ -136,7 +170,9 @@ extension SyncEngine {
     cloudOperationQueue.addOperation(operation)
     
     // we want to wait for the fetch to complete before pushing changes
-    cloudOperationQueue.waitUntilAllOperationsAreFinished()
+    if !useCompletion {
+      cloudOperationQueue.waitUntilAllOperationsAreFinished()
+    }
   }
 
   // MARK: - Private
@@ -174,6 +210,8 @@ extension SyncEngine {
       }
     }
   }
+  
+  // MARK: - Helper
 
   private func emitServerChanges(with changedRecords: [CKRecord], 
                                  deletedRecordIDs: [CKRecord.ID],
@@ -183,8 +221,26 @@ extension SyncEngine {
       return
     }
 
-    logHandler("Fetched \(changedRecords.count) changed record(s) and \(deletedRecordIDs.count) deleted record(s)", .info)
+    let modelChanges = makeModelChanges(with: changedRecords, deletedRecordIDs: deletedRecordIDs, andChangeToken: changeToken)
 
+    modelsChangedSubject.send(modelChanges)
+  }
+  
+  /// Wrap changes that need to be returned to the caller
+  /// - Parameters:
+  ///   - changedRecords: changed records
+  ///   - deletedRecordIDs: deleted record IDs
+  ///   - changeToken: the new change token for these set of changes. Passed back to the consumer for it to update the SyncEngine after processing changes.
+  private func makeModelChanges(with changedRecords: [CKRecord],
+                                deletedRecordIDs: [CKRecord.ID],
+                                andChangeToken changeToken: CKServerChangeToken? = nil) -> ModelChanges {
+    guard !changedRecords.isEmpty || !deletedRecordIDs.isEmpty else {
+      logHandler("Finished record zone changes fetch with no changes", .info)
+      return .init()
+    }
+    
+    logHandler("Fetched \(changedRecords.count) changed record(s) and \(deletedRecordIDs.count) deleted record(s)", .info)
+    
     let models: Set<Model> = Set(
       changedRecords.compactMap { record in
         do {
@@ -196,11 +252,11 @@ extension SyncEngine {
           return nil
         }
       })
-
+    
     let deletedIdentifiers = Set(deletedRecordIDs.map(\.recordName))
-
-    modelsChangedSubject.send(.init(updates: .updatesPulled(models),
-                                    deletes: .deletesPulled(deletedIdentifiers),
-                                    changeToken: changeToken))
+    
+    return .init(updates: .updatesPulled(models),
+                 deletes: .deletesPulled(deletedIdentifiers),
+                 changeToken: changeToken)
   }
 }

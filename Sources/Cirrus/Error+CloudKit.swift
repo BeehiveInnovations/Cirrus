@@ -70,12 +70,15 @@ extension Error {
   }
 
   /// Retries a CloudKit operation if the error suggests it
-  ///
+  /// 
   /// - Parameters:
-  ///   - log: The logger to use for logging information about the error handling, uses the default one if not set
+  ///   - logger: The logger to use for logging information about the error handling, uses the default one if not set
   ///   - block: The block that will execute the operation later if it can be retried
+  ///   - queue: queue to run the block on
+  ///
   /// - Returns: Whether or not it was possible to retry the operation
-  @discardableResult func retryCloudKitOperationIfPossible(_ logger: ((String, OSLogType) -> Void)? = nil, queue: DispatchQueue,
+  @discardableResult func retryCloudKitOperationIfPossible(_ logger: ((String, OSLogType) -> Void)? = nil, 
+                                                           queue: DispatchQueue,
                                                            with block: @escaping () -> Void) -> Bool {
     guard let effectiveError = self as? CKError else { return false }
     

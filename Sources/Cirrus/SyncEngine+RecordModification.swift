@@ -25,47 +25,110 @@ extension SyncEngine {
                   context: context)
   }
   
+  func saveRecord(_ model: Model,
+                    usingContext context: RecordModifyingContext,
+                    onCompletion: @escaping ((Result<SyncEngine<Model>.ModelChanges, Error>) -> Void)) {
+    guard let record = try? context.encodedRecord(model) else {
+      onCompletion(.failure(CKError(.invalidArguments)))
+      return
+    }
+    
+    modifyRecords(toSave: [record],
+                  recordIDsToDelete: [],
+                  context: context, 
+                  onCompletion: onCompletion)
+  }
+  
+  func deleteRecord(_ model: Model,
+                    usingContext context: RecordModifyingContext,
+                    onCompletion: @escaping ((Result<SyncEngine<Model>.ModelChanges, Error>) -> Void)) {
+    guard let record = try? context.encodedRecord(model) else {
+      onCompletion(.failure(CKError(.invalidArguments)))
+      return
+    }
+    
+    modifyRecords(toSave: [],
+                  recordIDsToDelete: [record.recordID],
+                  context: context,
+                  onCompletion: onCompletion)
+  }
+  
   // MARK: - Private
   
   private func modifyRecords(toSave recordsToSave: [CKRecord],
                              recordIDsToDelete: [CKRecord.ID],
-                             context: RecordModifyingContextProvider) {
-    guard !recordIDsToDelete.isEmpty || !recordsToSave.isEmpty else { return }
+                             context: RecordModifyingContextProvider,
+                             savePolicyOverride: CKModifyRecordsOperation.RecordSavePolicy? = nil,
+                             onCompletion: ((Result<SyncEngine<Model>.ModelChanges, Error>) -> Void)? = nil) {
+    guard !recordIDsToDelete.isEmpty || !recordsToSave.isEmpty else {
+      // no need to call the completion handler given modifyRecord() calls this
+      // and there's guaranteed to be a single record being modified
+      // assert instead
+      if let _ = onCompletion {
+        assertionFailure("No record passed when completion handler variant used")
+      }
+      return
+    }
     
     logHandler("Sending \(recordsToSave.count) record(s) for upload and \(recordIDsToDelete.count) record(s) for deletion.", .debug)
     
-    let operation = CKModifyRecordsOperation(recordsToSave: recordsToSave, recordIDsToDelete: recordIDsToDelete)
+    let operation = CKModifyRecordsOperation(recordsToSave: recordsToSave.isEmpty ? nil : recordsToSave,
+                                             recordIDsToDelete: recordIDsToDelete.isEmpty ? nil : recordIDsToDelete)
     
     operation.modifyRecordsCompletionBlock = { [weak self] serverRecords, deletedRecordIDs, error in
-      guard let self else { return }
+      guard let self else {
+        onCompletion?(.failure(CKError(.internalError)))
+        return
+      }
       
       if let error {
         self.logHandler("Failed to \(context.name) records: \(String(describing: error))", .error)
         
         self.workQueue.async { [weak self] in
-          guard let self else { return }
+          guard let self else {
+            onCompletion?(.failure(CKError(.internalError)))
+            return
+          }
           
           self.handleError(error,
                            toSave: recordsToSave,
                            recordIDsToDelete: recordIDsToDelete,
-                           context: context)
+                           context: context,
+                           onCompletion: onCompletion)
         }
       }
       else {
-        self.logHandler("Successfully \(context.name) record(s). Saved \(recordsToSave.count) and deleted \(recordIDsToDelete.count)", .info)
+        if !recordIDsToDelete.isEmpty, recordsToSave.isEmpty {
+          self.logHandler("Successfully \(context.name) record(s). Deleted \(recordIDsToDelete.count)", .info)
+        }
+        else if recordIDsToDelete.isEmpty, !recordsToSave.isEmpty {
+          self.logHandler("Successfully \(context.name) record(s). Saved \(recordsToSave.count)", .info)
+        }
+        else {
+          self.logHandler("Successfully \(context.name) record(s). Saved \(recordsToSave.count) and deleted \(recordIDsToDelete.count)", .info)
+        }
         
         self.workQueue.async { [weak self] in
-          guard let self else { return }
+          guard let self else {
+            onCompletion?(.failure(CKError(.internalError)))
+            
+            return
+          }
           
-          self.modelsChangedSubject.send(
-            context.modelChangeForUpdatedRecords(recordsSaved: serverRecords ?? [],
-                                                 recordIDsDeleted: deletedRecordIDs ?? [])
-          )
+          let modelChanges: SyncEngine<Model>.ModelChanges = context.modelChangeForUpdatedRecords(recordsSaved: serverRecords ?? [],
+                                                                                                  recordIDsDeleted: deletedRecordIDs ?? [])
+          
+          if let onCompletion {
+            onCompletion(.success(modelChanges))
+          }
+          else {
+            self.modelsChangedSubject.send(modelChanges)
+          }
         }
       }
     }
     
-    operation.savePolicy = context.savePolicy
+    operation.savePolicy = savePolicyOverride ?? self.savePolicy
     operation.qualityOfService = .userInitiated
     operation.database = privateDatabase
     
@@ -77,15 +140,15 @@ extension SyncEngine {
   private func handleError(_ error: Error,
                            toSave recordsToSave: [CKRecord],
                            recordIDsToDelete: [CKRecord.ID],
-                           context: RecordModifyingContextProvider) {
+                           context: RecordModifyingContextProvider,
+                           onCompletion: ((Result<SyncEngine<Model>.ModelChanges, Error>) -> Void)? = nil) {
     guard let ckError = error as? CKError else {
       logHandler( "Error was not a CKError, giving up: \(String(describing: error))", .fault)
-      
+      onCompletion?(.failure(error))
       return
     }
     
     switch ckError {
-        
       case _ where ckError.isCloudKitZoneDeleted:
         // If the CloudKit zone is deleted, the code logs this and attempts to recreate the zone. After recreating, it retries the modify operation.
         
@@ -93,6 +156,8 @@ extension SyncEngine {
         
         guard initializeZone(with: self.cloudOperationQueue) else {
           logHandler("Unable to create zone, error is not recoverable: \(String(describing: error))", .fault)
+          
+          onCompletion?(.failure(error))
           return
         }
         
@@ -100,7 +165,8 @@ extension SyncEngine {
         self.modifyRecords(
           toSave: recordsToSave,
           recordIDsToDelete: recordIDsToDelete,
-          context: context
+          context: context,
+          onCompletion: onCompletion
         )
         
       case _ where ckError.code == CKError.Code.limitExceeded:
@@ -109,12 +175,11 @@ extension SyncEngine {
         
         logHandler("CloudKit batch limit exceeded, trying to \(context.name) records in chunks", .error)
         
-        let firstHalfSave = Array(recordsToSave[0..<recordsToSave.count / 2])
-        let secondHalfSave = Array(recordsToSave[recordsToSave.count / 2..<recordsToSave.count])
+        let firstHalfSave = recordsToSave.count <= 1 ? recordsToSave : Array(recordsToSave[0..<recordsToSave.count / 2])
+        let secondHalfSave = recordsToSave.count <= 1 ? [] : Array(recordsToSave[recordsToSave.count / 2..<recordsToSave.count])
         
-        let firstHalfDelete = Array(recordIDsToDelete[0..<recordIDsToDelete.count / 2])
-        let secondHalfDelete = Array(
-          recordIDsToDelete[recordIDsToDelete.count / 2..<recordIDsToDelete.count])
+        let firstHalfDelete = recordIDsToDelete.count <= 1 ? recordIDsToDelete : Array(recordIDsToDelete[0..<recordIDsToDelete.count / 2])
+        let secondHalfDelete = recordIDsToDelete.count <= 1 ? [] : Array(recordIDsToDelete[recordIDsToDelete.count / 2..<recordIDsToDelete.count])
         
         let results = [(firstHalfSave, firstHalfDelete), (secondHalfSave, secondHalfDelete)].map {
           (save: [CKRecord], delete: [CKRecord.ID]) in
@@ -123,19 +188,25 @@ extension SyncEngine {
             self.modifyRecords(
               toSave: save,
               recordIDsToDelete: delete,
-              context: context
+              context: context,
+              onCompletion: onCompletion
             )
           }
         }
         
         if !results.allSatisfy({ $0 == true }) {
           logHandler("Error is not recoverable: \(String(describing: error))", .error)
+          
+          onCompletion?(.failure(error))
         }
         
       case _ where ckError.code == .partialFailure:
+        // Even if there was one item to save, a partial failure can be returned. Must be handled here
+        
         if let partialErrors = ckError.userInfo[CKPartialErrorsByItemIDKey] as? [CKRecord.ID: Error] {
           let recordIDsNotSavedOrDeleted = Set(partialErrors.keys)
-          
+
+          // An error that occurs when the system rejects the entire batch of changes.
           let batchRequestFailedRecordIDs = Set(
             partialErrors.filter({ (_, error) in
               if let error = error as? CKError,
@@ -146,6 +217,7 @@ extension SyncEngine {
               return false
             }).keys)
           
+          // An error that occurs when CloudKit rejects a record because the server’s version is different.
           let serverRecordChangedErrors = partialErrors.filter({ (_, error) in
             if let error = error as? CKError,
                error.code == .serverRecordChanged
@@ -155,6 +227,7 @@ extension SyncEngine {
             return false
           }).values
           
+          // An error that occurs when the specified record doesn’t exist.
           let unknownItemRecordIDs = Set(
             partialErrors.filter({ (_, error) in
               if let error = error as? CKError,
@@ -185,31 +258,62 @@ extension SyncEngine {
             .filter(recordIDsNotSavedOrDeleted.contains)
             .filter { !unknownItemRecordIDs.contains($0) }
           
-          let resolvedConflictsToSave = serverRecordChangedErrors.compactMap { $0.resolveConflict(logHandler, with: Model.resolveConflict) }
+          let resolvedConflictsToSave = serverRecordChangedErrors.compactMap {
+            $0.resolveConflict(logHandler, with: Model.resolveConflict)
+          }
           
           let conflictsToSaveSet = Set(resolvedConflictsToSave.map(\.recordID))
+          
           let batchRequestFailureRecordsToSave = recordsToSaveWithoutUnknowns.filter {
             !conflictsToSaveSet.contains($0.recordID)
             && batchRequestFailedRecordIDs.contains($0.recordID)
           }
           
+          let finalSavesWithoutUknowns = batchRequestFailureRecordsToSave + resolvedConflictsToSave
+          
+          // Handle completion failures separately as these would be for individual items
+          if let onCompletion {
+            // If an unknown record could not be saved or deleted, stop and invoke the callback
+            if !unknownRecords.isEmpty || !unknownDeletedIDs.isEmpty {
+              // Let the caller decide what to do with these
+              // This isn't considered a typical error but instead returned as success with
+              // an known item. The caller may not care or may wish to delete the local copy
+              let failedChanges: SyncEngine<Model>.ModelChanges = context.failedToUpdateRecords(recordsSaved: unknownRecords,
+                                                                                                recordIDsDeleted: unknownDeletedIDs)
+              
+              onCompletion(.success(failedChanges))
+              
+              return
+            }
+          }
+          
           modifyRecords(
-            toSave: batchRequestFailureRecordsToSave + resolvedConflictsToSave,
+            toSave: finalSavesWithoutUknowns,
             recordIDsToDelete: recordIDsToDeleteWithoutUnknowns,
-            context: context
+            context: context,
+            savePolicyOverride: .changedKeys,
+            onCompletion: onCompletion
           )
+        }
+        else {
+          onCompletion?(.failure(error))
         }
         
       case _ where ckError.code == .serverRecordChanged:
         if let resolvedRecord = error.resolveConflict(logHandler, with: Model.resolveConflict) {
           logHandler("Conflict resolved, will retry upload", .info)
           
+          // Retry sending
           self.modifyRecords(toSave: [resolvedRecord],
                              recordIDsToDelete: [],
-                             context: context)
-        } 
+                             context: context,
+                             savePolicyOverride: .changedKeys,
+                             onCompletion: onCompletion)
+        }
         else {
           logHandler("Resolving conflict returned a nil record. Giving up.", .error)
+          
+          onCompletion?(.failure(error))
         }
         
       case _
@@ -220,22 +324,42 @@ extension SyncEngine {
         
         logHandler("Unable to connect to iCloud servers: \(String(describing: error))", .info)
         
+        onCompletion?(.failure(error))
+        
       case _ where ckError.code == .unknownItem:
         logHandler("Unknown item, ignoring: \(String(describing: error))", .info)
         
+        // Let the caller decide what to do with these
+        // This isn't considered a typical error but instead returned as success with
+        // an known item. The caller may not care or may wish to delete the local copy
+        let failedChanges: SyncEngine<Model>.ModelChanges = context.failedToUpdateRecords(recordsSaved: recordsToSave,
+                                                                                          recordIDsDeleted: recordIDsToDelete)
+        
+        onCompletion?(.success(failedChanges))
+        
       default:
+        // Retry
+        logHandler("Retrying for error: \(String(describing: error))", .info)
+        
         let result = error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
           self.modifyRecords(toSave: recordsToSave,
                              recordIDsToDelete: recordIDsToDelete,
-                             context: context)
+                             context: context,
+                             onCompletion: onCompletion)
         }
         
         if !result {
           logHandler("Error is not recoverable: \( String(describing: error))", .error)
           
-          self.modelsChangedSubject.send(
-            context.failedToUpdateRecords(recordsSaved: recordsToSave, recordIDsDeleted: recordIDsToDelete)
-          )
+          let failedChanges: SyncEngine<Model>.ModelChanges = context.failedToUpdateRecords(recordsSaved: recordsToSave,
+                                                                                            recordIDsDeleted: recordIDsToDelete)
+          
+          if let onCompletion {
+            onCompletion(.success(failedChanges))
+          }
+          else {
+            self.modelsChangedSubject.send(failedChanges)
+          }
         }
     }
   }

@@ -24,33 +24,18 @@ final class DeleteRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
   func buffer(_ values: [Persistable]) {
     let recordIDs: [CKRecord.ID]
     do {
-      recordIDs = try values.map { try CKRecordEncoder(zoneID: zoneID).encode($0).recordID }
+      recordIDs = try values.map { try encodedRecord($0).recordID }
     } catch let error {
       logHandler("Failed to encode records for delete: \(String(describing: error))", .error)
-      recordIDs = values.compactMap { try? CKRecordEncoder(zoneID: zoneID).encode($0).recordID }
+      recordIDs = values.compactMap { try? encodedRecord($0).recordID }
     }
     recordIDsToDelete.append(contentsOf: recordIDs)
   }
   
-  /// Check if the item is already buffered and pending upload
-  func isBuffered(_ value: Persistable) -> Bool {
-    let record: CKRecord
-    do {
-      record = try CKRecordEncoder(zoneID: zoneID).encode(value)
-    } catch let error {
-      logHandler("Failed to encode record for delete buffer check: \(String(describing: error))", .error)
-      
-      return false
-    }
-    
-    return recordIDsToDelete.contains(where: { $0 == record.recordID })
-  }
-
   // MARK: - RecordModifying
 
   let name = "delete"
-  var savePolicy: CKModifyRecordsOperation.RecordSavePolicy = .ifServerRecordUnchanged
-
+  
   var recordsToSave: [CKRecord.ID: CKRecord] = [:]
 
   var recordIDsToDelete: [CKRecord.ID] {
@@ -78,6 +63,10 @@ final class DeleteRecordContext<Persistable: CloudKitCodable>: RecordModifyingCo
         logHandler("Failed to encode record ids for deletion: \(String(describing: error))", .error)
       }
     }
+  }
+  
+  func encodedRecord<T: CloudKitCodable>(_ obj: T) throws -> CKRecord {
+    try CKRecordEncoder(zoneID: zoneID).encode(obj)
   }
 
   func modelChangeForUpdatedRecords<T: CloudKitCodable>(recordsSaved: [CKRecord], 

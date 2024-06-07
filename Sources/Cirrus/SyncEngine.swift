@@ -59,6 +59,9 @@ public final class SyncEngine<Model: CloudKitCodable> {
   /// A publisher that sends a `ModelChanges` when models are updated or deleted on iCloud. No thread guarantees.
   public private(set) lazy var modelsChanged = modelsChangedSubject.eraseToAnyPublisher()
   
+  /// Defaults to `.ifServerRecordUnchanged`
+  public var savePolicy: CKModifyRecordsOperation.RecordSavePolicy = .ifServerRecordUnchanged
+  
   /// The current iCloud account status for the user.
   @Published public internal(set) var accountStatus: AccountStatus = .unknown {
     willSet {
@@ -183,23 +186,6 @@ public final class SyncEngine<Model: CloudKitCodable> {
       }
     }
   }
-  
-  /// Check if the item is pending an upload
-  /// - Parameters:
-  ///   - model: item
-  ///   - onCompletion: called on completion. No thread guarantees
-  public func isPendingUpload(_ model: Model, onCompletion: @escaping (Bool)->()) {
-    logHandler(#function, .debug)
-    
-    workQueue.async { [weak self] in
-      guard let self else {
-        onCompletion(false)
-        return
-      }
-      
-      onCompletion(self.uploadContext.isBuffered(model))
-    }
-  }
 
   /// Delete models from CloudKit.
   public func delete(_ models: Model...) {
@@ -228,23 +214,6 @@ public final class SyncEngine<Model: CloudKitCodable> {
     }
   }
   
-  /// Check if the item is pending deletion
-  /// - Parameters:
-  ///   - model: item
-  ///   - onCompletion: called on completion. No thread guarantees
-  public func isPendingDelete(_ model: Model, onCompletion: @escaping (Bool)->()) {
-    logHandler(#function, .debug)
-    
-    workQueue.async { [weak self] in
-      guard let self else {
-        onCompletion(false)
-        return
-      }
-      
-      onCompletion(self.deleteContext.isBuffered(model))
-    }
-  }
-
   /// Forces a data synchronization with CloudKit.
   /// 
   /// Use this method for force sync any data that may not have been able to upload
@@ -269,29 +238,18 @@ public final class SyncEngine<Model: CloudKitCodable> {
   /// Fetch remote changes
   /// - Parameter resettingToken: reset the sync token to fetch everything. Default: `false`
   /// - Parameter onCompletion: completion called after fetching remote changes. No thread guarantees.
-  public func pullChanges(resettingToken: Bool = false, onCompletion: (()->())? = nil) {
+  public func pullChanges(resettingToken: Bool = false, 
+                          onCompletion: ((Result<SyncEngine<Model>.ModelChanges, Error>) -> Void)? = nil) {
     logHandler(#function, .debug)
     
     workQueue.async { [weak self] in
       guard let self else { return }
       
       if resettingToken {
-        self.resetChangeToken()
+        self.privateChangeToken = nil
       }
       
-      // Fetch changes before pushing changes. This way we avoid pushing out udpates to remotely deleted
-      // objects
       self.fetchRemoteChanges(onCompletion: onCompletion)
-    }
-  }
-  
-  /// Async wrapper for pullChanges method
-  public func pullChangesAsync(resettingToken: Bool = false) async {
-    // Use a continuation to bridge the callback-based API with async/await
-    await withCheckedContinuation { continuation in
-      self.pullChanges(resettingToken: resettingToken) {
-        continuation.resume()
-      }
     }
   }
   
@@ -311,7 +269,8 @@ public final class SyncEngine<Model: CloudKitCodable> {
   /// so that the token is not inadvertently saved before changes have been processed. Power failure, other fatal crashes
   /// may prevent the caller from successfully consuming these changes.
   /// - Parameter changeToken: new change token
-  public func updateChangeToken(_ changeToken: CKServerChangeToken?) {
+  public func updateChangeToken(_ changeToken: CKServerChangeToken?,
+                                onCompletion: (() -> ())? = nil) {
     guard let changeToken else {
       self.logHandler("Ignored commiting empty change token", .info)
       
@@ -324,6 +283,8 @@ public final class SyncEngine<Model: CloudKitCodable> {
       self.logHandler("Commiting new change token", .info)
       
       self.privateChangeToken = changeToken
+      
+      onCompletion?()
     }
   }
 
@@ -377,6 +338,69 @@ public final class SyncEngine<Model: CloudKitCodable> {
         return
       }
       self.logHandler("Cloud environment preparation done", .debug)
+    }
+  }
+}
+
+// MARK: - Async Wrappers
+
+extension SyncEngine {
+  
+  /// Async wrapper for `pullChanges` where remote changes are fetched and returned
+  public func pullChanges(resettingToken: Bool = false) async throws -> SyncEngine<Model>.ModelChanges {
+    try await withCheckedThrowingContinuation { continuation in
+      self.pullChanges(resettingToken: resettingToken) { result in
+        switch result {
+          case .success(let changes):
+            continuation.resume(returning: changes)
+          case .failure(let error):
+            continuation.resume(throwing: error)
+        }
+      }
+    }
+  }
+  
+  /// Upload a single record to CloudKit
+  ///
+  /// - Parameters:
+  ///   - model: model to upload
+  public func upload(_ model: Model) async throws -> SyncEngine<Model>.ModelChanges {
+    try await withCheckedThrowingContinuation { continuation in
+      self.saveRecord(model, usingContext: self.uploadContext) { result in
+        switch result {
+          case .success(let changes):
+            continuation.resume(returning: changes)
+          case .failure(let error):
+            continuation.resume(throwing: error)
+        }
+      }
+    }
+  }
+  
+  /// Delete a single record from CloudKit
+  ///
+  /// - Parameters:
+  ///   - model: model to delete
+  public func delete(_ model: Model) async throws -> SyncEngine<Model>.ModelChanges {
+    try await withCheckedThrowingContinuation { continuation in
+      self.deleteRecord(model, usingContext: self.uploadContext) { result in
+        switch result {
+          case .success(let changes):
+            continuation.resume(returning: changes)
+          case .failure(let error):
+            continuation.resume(throwing: error)
+        }
+      }
+    }
+  }
+  
+  /// Update the change token async
+  /// - Parameter changeToken: change token
+  public func updateChangeTokenAsync(_ changeToken: CKServerChangeToken?) async {
+    await withCheckedContinuation { continuation in
+      updateChangeToken(changeToken) {
+        continuation.resume()
+      }
     }
   }
 }
