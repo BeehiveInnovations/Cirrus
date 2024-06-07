@@ -60,17 +60,11 @@ public final class SyncEngine<Model: CloudKitCodable> {
   
   // MARK: - Internal Properties
   
-#if DEBUG
-  let subKeyPostfix = "-DEBUG"
-#else
-  let subKeyPostfix = ""
-#endif
-  
   // Subscriptions are one per device - must be the same for both dev and production
   lazy var privateSubscriptionIdentifier = "\(zoneIdentifier.zoneName).subscription"
   
   /// UserDefaults key for storing change-token. Different for dev / production to validate / test
-  lazy var privateChangeTokenKey = "TOKEN-\(zoneIdentifier.zoneName)\(subKeyPostfix)"
+  lazy var privateChangeTokenKey = "TOKEN-\(zoneIdentifier.zoneName)"
   
   // Note: this has a trailing ) but too late to fix after it's been deployed
   lazy var createdPrivateSubscriptionKey = "CREATEDSUBDB-\(zoneIdentifier.zoneName))"

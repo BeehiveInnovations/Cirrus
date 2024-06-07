@@ -13,9 +13,9 @@ extension SyncEngine {
   func fetchRemoteChanges(onCompletion: @escaping ((Result<SyncEngine<Model>.ModelChanges, Error>) -> Void)) {
     logHandler("\(#function)", .debug)
 
-    // Dictionary to hold the latest version of each changed record
-    var latestChangedRecords = [CKRecord.ID: CKRecord]()
+    var changedRecords: [CKRecord] = []
     var deletedRecordIDs: [CKRecord.ID] = []
+    var finalChangeToken: CKServerChangeToken? = privateChangeToken
     
     // Completion handler invocation guard
     var completionCalled = false
@@ -28,11 +28,7 @@ extension SyncEngine {
     
     let operation = CKFetchRecordZoneChangesOperation()
 
-    let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration(
-      previousServerChangeToken: privateChangeToken,
-      resultsLimit: nil,
-      desiredKeys: nil
-    )
+    let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration(previousServerChangeToken: privateChangeToken)
 
     operation.configurationsByRecordZoneID = [zoneIdentifier: config]
 
@@ -44,9 +40,9 @@ extension SyncEngine {
       guard let self else { return }
       
       self.workQueue.async {
-        latestChangedRecords[record.recordID] = record
+        changedRecords.append(record)
 
-        self.logHandler("... fetched changed item", .debug)
+//        self.logHandler("... fetched changed item", .debug)
       }
     }
 
@@ -57,12 +53,21 @@ extension SyncEngine {
       self.workQueue.async { [weak self] in
         guard let self else { return }
         
-        guard self.recordType == recordType else { return }
+        guard self.recordType == recordType else {
+          self.logHandler("... fetched unknown deleted item, ignored: \(recordType), \(recordID)", .info)
+          
+          return
+        }
 
-        self.logHandler("... fetched deleted item", .debug)
+        //self.logHandler("... fetched deleted item", .debug)
 
         deletedRecordIDs.append(recordID)
       }
+    }
+    
+    // Cache intermediate change tokens
+    operation.recordZoneChangeTokensUpdatedBlock = { recordZoneID, token, _ in
+      finalChangeToken = token
     }
     
     // Called after the record zone fetch completes
@@ -71,10 +76,6 @@ extension SyncEngine {
       
       if let error = error as? CKError {
         self.logHandler("Failed to fetch record zone changes (final? \(isFinalChange ? "yes" : "no")): \(String(describing: error))", .error)
-        
-        // Clear accumulated changes as we'll be trying again
-        latestChangedRecords.removeAll()
-        deletedRecordIDs.removeAll()
         
         if error.code == .changeTokenExpired {
           self.workQueue.async { [weak self] in
@@ -104,22 +105,14 @@ extension SyncEngine {
         self.workQueue.async { [weak self] in
           guard let self else { return }
 
-          let changedRecords = Array(latestChangedRecords.values)
-          
-          if deletedRecordIDs.isEmpty && latestChangedRecords.isEmpty {
-            self.logHandler("Fetch completed [\(changedRecords.count) changes, \(deletedRecordIDs.count) deletes]", .info)
+          if deletedRecordIDs.isEmpty && changedRecords.isEmpty {
+            self.logHandler("Zone fetch completed [\(changedRecords.count) changes, \(deletedRecordIDs.count) deletes], final? \(isFinalChange)", .info)
           }
           else {
-            self.logHandler("Finalizing fetch [\(changedRecords.count) changes, \(deletedRecordIDs.count) deletes]", .info)
+            self.logHandler("Zone fetch finished [\(changedRecords.count) changes, \(deletedRecordIDs.count) deletes], final? \(isFinalChange)", .info)
           }
           
-          // When using a completion block, accumulated changes are returned at once
-          callCompletion(.success(makeModelChanges(with: changedRecords,
-                                                   deletedRecordIDs: deletedRecordIDs,
-                                                   andChangeToken: newChangeToken)))
-          
-          latestChangedRecords.removeAll()
-          deletedRecordIDs.removeAll()
+          finalChangeToken = newChangeToken
         }
       }
     }
@@ -147,9 +140,20 @@ extension SyncEngine {
       else {
         self.logHandler("Finished fetching record zone changes", .info)
         
-        // DO NOT CALL COMPLETION HERE - Upon a successful fetch we expect
-        // recordZoneFetchCompletionBlock to have completed with the appropriate
-        // change-token and final changes.
+        self.workQueue.async { [weak self] in
+          guard let self else { return }
+          
+          if deletedRecordIDs.isEmpty && changedRecords.isEmpty {
+            self.logHandler("Fetch operation completed [\(changedRecords.count) changes, \(deletedRecordIDs.count) deletes]", .info)
+          }
+          else {
+            self.logHandler("Finalizing fetch operation [\(changedRecords.count) changes, \(deletedRecordIDs.count) deletes]", .info)
+          }
+          
+          callCompletion(.success(makeModelChanges(with: changedRecords,
+                                                   deletedRecordIDs: deletedRecordIDs,
+                                                   andChangeToken: finalChangeToken)))
+        }
       }
     }
 
@@ -167,8 +171,7 @@ extension SyncEngine {
       guard !data.isEmpty else { return nil }
 
       do {
-        let token = try NSKeyedUnarchiver.unarchivedObject(
-          ofClass: CKServerChangeToken.self, from: data)
+        let token = try NSKeyedUnarchiver.unarchivedObject(ofClass: CKServerChangeToken.self, from: data)
 
         return token
       } catch {
@@ -178,14 +181,13 @@ extension SyncEngine {
       }
     }
     set {
-      guard let newValue = newValue else {
+      guard let newValue else {
         defaults.setValue(Data(), forKey: privateChangeTokenKey)
         return
       }
 
       do {
-        let data = try NSKeyedArchiver.archivedData(
-          withRootObject: newValue, requiringSecureCoding: true)
+        let data = try NSKeyedArchiver.archivedData(withRootObject: newValue, requiringSecureCoding: true)
 
         defaults.set(data, forKey: privateChangeTokenKey)
       } catch {
@@ -218,8 +220,8 @@ extension SyncEngine {
           let decoder = CKRecordDecoder()
           return try decoder.decode(Model.self, from: record)
         } catch {
-          logHandler(
-            "Error decoding item from record: \(String(describing: error))", .error)
+          logHandler("Error decoding item from record: \(String(describing: error))", .error)
+          
           return nil
         }
       })
