@@ -1,4 +1,4 @@
-@_implementationOnly import CKRecordCoder
+import CKRecordCoder
 import CloudKit
 import CloudKitCodable
 import Foundation
