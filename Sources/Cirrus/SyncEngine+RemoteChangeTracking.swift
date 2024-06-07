@@ -73,8 +73,6 @@ extension SyncEngine {
       if let error = error as? CKError {
         self.logHandler("Failed to fetch record zone changes (final? \(isFinalChange ? "yes" : "no")): \(String(describing: error))", .error)
         
-        assert(isFinalChange, "Can errors be returned when this isn't the final change?")
-        
         // Clear accumulated changes as we'll be trying again
         latestChangedRecords.removeAll()
         deletedRecordIDs.removeAll()
