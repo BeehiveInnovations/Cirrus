@@ -76,10 +76,20 @@ public final class SyncEngine<Model: CloudKitCodable> {
 
   // MARK: - Internal Properties
 
-  lazy var privateSubscriptionIdentifier = "\(zoneIdentifier.zoneName).subscription"
-  lazy var privateChangeTokenKey = "TOKEN-\(zoneIdentifier.zoneName)"
-  lazy var createdPrivateSubscriptionKey = "CREATEDSUBDB-\(zoneIdentifier.zoneName))"
-  lazy var createdCustomZoneKey = "CREATEDZONE-\(zoneIdentifier.zoneName))"
+  #if DEBUG
+  let subKeyPostfix = "-DEBUG"
+  #else
+  let subKeyPostfix = ""
+  #endif
+
+  lazy var privateSubscriptionIdentifier = "\(zoneIdentifier.zoneName).subscription\(subKeyPostfix)"
+  lazy var privateChangeTokenKey = "TOKEN-\(zoneIdentifier.zoneName)\(subKeyPostfix)"
+  lazy var createdPrivateSubscriptionKey = "CREATEDSUBDB-\(zoneIdentifier.zoneName)\(subKeyPostfix)"
+  lazy var createdCustomZoneKey = "CREATEDZONE-\(zoneIdentifier.zoneName)\(subKeyPostfix)"
+
+  // trailing ")"
+  lazy var legacyCreatedPrivateSubscriptionKey = "CREATEDSUBDB-\(zoneIdentifier.zoneName))"
+  lazy var legacyCreatedCustomZoneKey = "CREATEDZONE-\(zoneIdentifier.zoneName))"
 
   lazy var workQueue = DispatchQueue(
     label: "SyncEngine.Work.\(zoneIdentifier.zoneName)",

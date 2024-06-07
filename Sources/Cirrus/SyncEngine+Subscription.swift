@@ -18,10 +18,11 @@ extension SyncEngine {
 
   private var createdPrivateSubscription: Bool {
     get {
-      return defaults.bool(forKey: createdPrivateSubscriptionKey)
+      return defaults.bool(forKey: createdPrivateSubscriptionKey) || defaults.bool(forKey: legacyCreatedPrivateSubscriptionKey)
     }
     set {
       defaults.set(newValue, forKey: createdPrivateSubscriptionKey)
+      defaults.removeObject(forKey: legacyCreatedPrivateSubscriptionKey)
     }
   }
 
