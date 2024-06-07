@@ -6,14 +6,19 @@ extension SyncEngine {
 
   // MARK: - Internal
 
-  func initializeSubscription(with queue: OperationQueue) -> Bool {
-    self.createPrivateSubscriptionsIfNeeded()
-        
-    guard self.createdPrivateSubscription else { return false }
-    
-    return true
+  func initializeSubscription() async throws -> Bool {
+    try await withCheckedThrowingContinuation { continuation in
+      createPrivateSubscriptionsIfNeeded { result in
+        switch result {
+          case .success(let success):
+            continuation.resume(returning: success)
+          case .failure(let error):
+            continuation.resume(throwing: error)
+        }
+      }
+    }
   }
-
+  
   // MARK: - Private
 
   private var createdPrivateSubscription: Bool {
@@ -26,13 +31,13 @@ extension SyncEngine {
     }
   }
 
-  private func createPrivateSubscriptionsIfNeeded() {
+  private func createPrivateSubscriptionsIfNeeded(isRetrying: Bool = false, onCompletion: @escaping ((Result<Bool, Error>) -> Void)) {
     guard !createdPrivateSubscription else {
       logHandler(
         "Already subscribed to private database changes, skipping subscription but checking if it really exists",
         .debug)
 
-      checkSubscription()
+      checkSubscription(isRetrying: isRetrying, onCompletion: onCompletion)
 
       return
     }
@@ -57,12 +62,23 @@ extension SyncEngine {
         self.logHandler(
           "Failed to create private CloudKit subscription: \(String(describing: error))", .error)
 
-        error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
-          self.createPrivateSubscriptionsIfNeeded()
+        var result = false
+        
+        // Don't try a second time
+        if !isRetrying {
+          result = error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
+            self.createPrivateSubscriptionsIfNeeded(isRetrying: true, onCompletion: onCompletion)
+          }
+        }
+        
+        if result == false {
+          onCompletion(.failure(error))
         }
       } else {
         self.logHandler("Private subscription created successfully", .info)
         self.createdPrivateSubscription = true
+        
+        onCompletion(.success(true))
       }
     }
 
@@ -72,39 +88,53 @@ extension SyncEngine {
     cloudOperationQueue.waitUntilAllOperationsAreFinished()
   }
 
-  private func checkSubscription() {
+  private func checkSubscription(isRetrying: Bool = false, onCompletion: @escaping ((Result<Bool, Error>) -> Void)) {
     let operation = CKFetchSubscriptionsOperation(subscriptionIDs: [privateSubscriptionIdentifier])
 
     operation.fetchSubscriptionCompletionBlock = { [weak self] ids, error in
       guard let self else { return }
 
       if let error {
-        self.logHandler(
-          "Failed to check for private zone subscription existence: \(String(describing: error))",
-          .error)
-
-        if !error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue, with: { self.checkSubscription() }) {
-          self.logHandler(
-            "Irrecoverable error when fetching private zone subscription, assuming it doesn't exist: \(String(describing: error))",
-            .error)
-
+        if let ckError = error as? CKError, ckError.code == .unknownItem || ckError.code == .partialFailure {
+          self.logHandler("Subscription not found, will try and re-create: \(String(describing: error))",.error)
+          
           self.workQueue.async { [weak self] in
             guard let self else { return }
             
             self.createdPrivateSubscription = false
-            self.createPrivateSubscriptionsIfNeeded()
+            self.createPrivateSubscriptionsIfNeeded(onCompletion: onCompletion)
+          }
+        }
+        else {
+          self.logHandler("Failed to check for private zone subscription existence: \(String(describing: error))",.error)
+
+          var result = false
+          
+          if !isRetrying {
+            result = error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
+              self.checkSubscription(onCompletion: onCompletion)
+            }
+          }
+          
+          if isRetrying || result == false {
+            self.logHandler("Irrecoverable error when fetching private zone subscription, assuming it doesn't exist: \(String(describing: error))", .error)
+            
+            self.workQueue.async { [weak self] in
+              guard let self else { return }
+              
+              self.createdPrivateSubscription = false
+              self.createPrivateSubscriptionsIfNeeded(onCompletion: onCompletion)
+            }
           }
         }
       } else if ids?.isEmpty ?? true {
-        self.logHandler(
-          "Private subscription reported as existing, but it doesn't exist. Creating.", .error
-        )
+        self.logHandler("Private subscription reported as existing, but it doesn't exist. Creating.", .error)
 
         self.workQueue.async { [weak self] in
           guard let self else { return }
           
           self.createdPrivateSubscription = false
-          self.createPrivateSubscriptionsIfNeeded()
+          self.createPrivateSubscriptionsIfNeeded(onCompletion: onCompletion)
         }
       } else {
         self.workQueue.async { [weak self] in
@@ -119,6 +149,8 @@ extension SyncEngine {
             
             self.logHandler("Private subscription exists, updating flag", .debug)
           }
+          
+          onCompletion(.success(true))
         }
       }
     }
@@ -127,8 +159,5 @@ extension SyncEngine {
     operation.database = privateDatabase
 
     cloudOperationQueue.addOperation(operation)
-    
-    // Wait for operation to complete
-    cloudOperationQueue.waitUntilAllOperationsAreFinished()
   }
 }

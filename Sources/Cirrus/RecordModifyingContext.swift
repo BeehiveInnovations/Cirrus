@@ -9,8 +9,3 @@ protocol RecordModifyingContextProvider {
   func modelChangeForUpdatedRecords<T: CloudKitCodable>(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]) -> SyncEngine<T>.ModelChanges
   func failedToUpdateRecords<T: CloudKitCodable>(recordsSaved: [CKRecord], recordIDsDeleted: [CKRecord.ID]) -> SyncEngine<T>.ModelChanges
 }
-
-protocol RecordModifyingContext: RecordModifyingContextProvider {
-  var recordsToSave: [CKRecord.ID: CKRecord] { get }
-  var recordIDsToDelete: [CKRecord.ID] { get }
-}

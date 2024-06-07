@@ -6,11 +6,17 @@ extension SyncEngine {
 
   // MARK: - Internal
 
-  func initializeZone(with queue: OperationQueue) -> Bool {
-    self.createCustomZoneIfNeeded()
-    
-    guard self.createdCustomZone else { return false }
-    return true
+  func initializeZone() async throws -> Bool {
+    try await withCheckedThrowingContinuation { continuation in
+      createCustomZoneIfNeeded { result in
+        switch result {
+          case .success(let success):
+            continuation.resume(returning: success)
+          case .failure(let error):
+            continuation.resume(throwing: error)
+        }
+      }
+    }
   }
 
   // MARK: - Private
@@ -25,12 +31,12 @@ extension SyncEngine {
     }
   }
 
-  private func createCustomZoneIfNeeded() {
+  private func createCustomZoneIfNeeded(isRetrying: Bool = false, onCompletion: @escaping ((Result<Bool, Error>) -> Void)) {
     guard !createdCustomZone else {
       logHandler("Already have custom zone, skipping creation but checking if zone really exists", .debug)
 
-      checkCustomZone()
-
+      checkCustomZone(isRetrying: isRetrying, onCompletion: onCompletion)
+        
       return
     }
 
@@ -46,16 +52,26 @@ extension SyncEngine {
       guard let self else { return }
 
       if let error {
-        self.logHandler(
-          "Failed to create custom CloudKit zone: \(String(describing: error))", .error)
+        self.logHandler("Failed to create custom CloudKit zone, trying again: \(String(describing: error))", .error)
 
-        error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
-          self.createCustomZoneIfNeeded()
+        var result = false
+        
+        // Don't try a second time
+        if !isRetrying {
+          result = error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
+            self.createCustomZoneIfNeeded(isRetrying: true, onCompletion: onCompletion)
+          }
         }
-      } 
+        
+        if result == false {
+          onCompletion(.failure(error))
+        }
+      }
       else {
         self.logHandler("Zone created successfully", .info)
         self.createdCustomZone = true
+        
+        onCompletion(.success(true))
       }
     }
 
@@ -63,12 +79,9 @@ extension SyncEngine {
     operation.database = privateDatabase
 
     cloudOperationQueue.addOperation(operation)
-    
-    // Wait for operation to complete
-    cloudOperationQueue.waitUntilAllOperationsAreFinished()
   }
 
-  private func checkCustomZone() {
+  private func checkCustomZone(isRetrying: Bool = false, onCompletion: @escaping ((Result<Bool, Error>) -> Void)) {
     let operation = CKFetchRecordZonesOperation(recordZoneIDs: [zoneIdentifier])
 
     operation.fetchRecordZonesCompletionBlock = { [weak self] ids, error in
@@ -77,15 +90,21 @@ extension SyncEngine {
       if let error {
         self.logHandler("Failed to check for custom zone existence: \(String(describing: error))", .error)
 
-        if !error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue, with: { self.checkCustomZone() }) {
-          
+        var result = false
+        
+        if !isRetrying {
+          result = error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
+            self.checkCustomZone(onCompletion: onCompletion)
+          }
+        }
+        
+        if isRetrying || result == false {
           self.logHandler("Irrecoverable error when fetching custom zone, assuming it doesn't exist: \(String(describing: error))", .error)
-
           self.workQueue.async { [weak self] in
             guard let self else { return }
             
             self.createdCustomZone = false
-            self.createCustomZoneIfNeeded()
+            self.createCustomZoneIfNeeded(onCompletion: onCompletion)
           }
         }
       } 
@@ -96,7 +115,7 @@ extension SyncEngine {
           guard let self else { return }
           
           self.createdCustomZone = false
-          self.createCustomZoneIfNeeded()
+          self.createCustomZoneIfNeeded(onCompletion: onCompletion)
         }
       }
       else {
@@ -110,6 +129,8 @@ extension SyncEngine {
             
             self.logHandler("Custom zone exists, updating flag", .debug)
           }
+          
+          onCompletion(.success(true))
         }
       }
     }
@@ -118,8 +139,5 @@ extension SyncEngine {
     operation.database = privateDatabase
 
     cloudOperationQueue.addOperation(operation)
-    
-    // Wait for operation to complete
-    cloudOperationQueue.waitUntilAllOperationsAreFinished()
   }
 }

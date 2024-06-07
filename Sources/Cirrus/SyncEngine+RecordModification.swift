@@ -7,7 +7,7 @@ extension SyncEngine {
   // MARK: - Internal
   
   func saveRecord(_ model: Model,
-                    usingContext context: RecordModifyingContext,
+                    usingContext context: RecordModifyingContextProvider,
                     onCompletion: @escaping ((Result<SyncEngine<Model>.ModelChanges, Error>) -> Void)) {
     guard let record = try? context.encodedRecord(model) else {
       onCompletion(.failure(CKError(.invalidArguments)))
@@ -21,7 +21,7 @@ extension SyncEngine {
   }
   
   func deleteRecord(_ model: Model,
-                    usingContext context: RecordModifyingContext,
+                    usingContext context: RecordModifyingContextProvider,
                     onCompletion: @escaping ((Result<SyncEngine<Model>.ModelChanges, Error>) -> Void)) {
     guard let record = try? context.encodedRecord(model) else {
       onCompletion(.failure(CKError(.invalidArguments)))
@@ -126,23 +126,9 @@ extension SyncEngine {
       case _ where ckError.isCloudKitZoneDeleted:
         // If the CloudKit zone is deleted, the code logs this and attempts to recreate the zone. After recreating, it retries the modify operation.
         
-        logHandler("Zone was deleted, recreating zone: \(String(describing: error))", .error)
+        logHandler("Zone was deleted: \(String(describing: error))", .error)
         
-        guard initializeZone(with: self.cloudOperationQueue) else {
-          logHandler("Unable to create zone, error is not recoverable: \(String(describing: error))", .fault)
-          
-          onCompletion(.failure(error))
-          return
-        }
-        
-        // retry
-        self.modifyRecords(
-          toSave: recordsToSave,
-          recordIDsToDelete: recordIDsToDelete,
-          context: context,
-          onCompletion: onCompletion
-        )
-        
+        onCompletion(.failure(error))
       case _ where ckError.code == CKError.Code.limitExceeded:
         // The operation splits the record saves and deletions into smaller chunks and retries them separately. 
         // This is done to comply with CloudKit's limitations on batch sizes.
