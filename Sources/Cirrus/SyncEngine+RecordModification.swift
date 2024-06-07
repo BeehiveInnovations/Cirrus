@@ -98,14 +98,14 @@ extension SyncEngine {
         }
       }
       else {
-        if !recordIDsToDelete.isEmpty, recordsToSave.isEmpty {
-          self.logHandler("Successfully \(context.name) record(s). Deleted \(recordIDsToDelete.count)", .info)
+        if !(deletedRecordIDs?.isEmpty ?? true), recordsToSave.isEmpty {
+          self.logHandler("Successfully \(context.name) record(s). Deleted \(deletedRecordIDs?.count ?? 0)", .info)
         }
-        else if recordIDsToDelete.isEmpty, !recordsToSave.isEmpty {
-          self.logHandler("Successfully \(context.name) record(s). Saved \(recordsToSave.count)", .info)
+        else if (deletedRecordIDs?.isEmpty ?? true), !(serverRecords?.isEmpty ?? true) {
+          self.logHandler("Successfully \(context.name) record(s). Saved \(serverRecords?.count ?? 0)", .info)
         }
         else {
-          self.logHandler("Successfully \(context.name) record(s). Saved \(recordsToSave.count) and deleted \(recordIDsToDelete.count)", .info)
+          self.logHandler("Successfully \(context.name) record(s). Saved \(serverRecords?.count ?? 0) and deleted \(deletedRecordIDs?.count ?? 0)", .info)
         }
         
         self.workQueue.async { [weak self] in
