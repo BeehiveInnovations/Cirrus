@@ -56,9 +56,6 @@ public final class SyncEngine<Model: CloudKitCodable> {
 
   // MARK: - Public Properties
 
-  /// A publisher that sends a `ModelChanges` when models are updated or deleted on iCloud. No thread guarantees.
-  public private(set) lazy var modelsChanged = modelsChangedSubject.eraseToAnyPublisher()
-  
   /// Defaults to `.ifServerRecordUnchanged`
   public var savePolicy: CKModifyRecordsOperation.RecordSavePolicy = .ifServerRecordUnchanged
   
@@ -110,7 +107,6 @@ public final class SyncEngine<Model: CloudKitCodable> {
   lazy var privateDatabase: CKDatabase = container.privateCloudDatabase
 
   var cancellables = Set<AnyCancellable>()
-  let modelsChangedSubject = PassthroughSubject<ModelChanges, Never>()
 
   private lazy var uploadContext: UploadRecordContext<Model> = UploadRecordContext(
     defaults: defaults, zoneID: zoneIdentifier, logHandler: logHandler)
@@ -173,83 +169,11 @@ public final class SyncEngine<Model: CloudKitCodable> {
 
   // MARK: - Public Methods
 
-  /// Upload models to CloudKit.
-  public func upload(_ models: Model...) {
-    upload(models)
-  }
-
-  /// Upload an array of models to CloudKit.
-  /// - Parameters:
-  ///   - models: models to upload
-  ///   - waitUntilFinished: wait until finished
-  public func upload(_ models: [Model], waitUntilFinished: Bool = false) {
-    logHandler(#function, .debug)
-
-    workQueue.async { [weak self] in
-      guard let self else { return }
-      
-      self.uploadContext.buffer(models)
-      self.modifyRecords(with: self.uploadContext)
-      
-      if waitUntilFinished {
-        cloudOperationQueue.waitUntilAllOperationsAreFinished()
-      }
-    }
-  }
-
-  /// Delete models from CloudKit.
-  public func delete(_ models: Model...) {
-    delete(models)
-  }
-
-  /// Delete an array of models from CloudKit.
-  /// - Parameters:
-  ///   - models: models
-  ///   - waitUntilFinished: wait until finished
-  public func delete(_ models: [Model], waitUntilFinished: Bool = false) {
-    logHandler(#function, .debug)
-
-    workQueue.async { [weak self] in
-      guard let self else { return }
-      
-      // Remove any pending upload items that match the items we want to delete
-      self.uploadContext.removeFromBuffer(models)
-
-      self.deleteContext.buffer(models)
-      self.modifyRecords(with: self.deleteContext)
-      
-      if waitUntilFinished {
-        cloudOperationQueue.waitUntilAllOperationsAreFinished()
-      }
-    }
-  }
-  
-  /// Forces a data synchronization with CloudKit.
-  /// 
-  /// Use this method for force sync any data that may not have been able to upload
-  /// to CloudKit automatically due to network conditions or other factors.
-  /// 
-  /// This method performs the following actions (in this order):
-  /// 1. Uploads any models that were passed to `upload(_:)` and were unable to be uploaded to CloudKit.
-  /// 2. Deletes any models that were passed to `delete(_:)` and were unable to be deleted from CloudKit.
-  /// 3. Fetches any new model changes from CloudKit.
-  /// - Parameter resettingToken: reset the sync token to fetch everything. Default: `false`
-  public func forceSync(resettingToken: Bool = false) {
-    logHandler(#function, .debug)
-
-    // Fetch changes before pushing changes. This way we avoid pushing out udpates to remotely deleted
-    // objects
-    self.pullChanges(resettingToken: resettingToken)
-    
-    // Push local updates / deletes
-    self.pushChanges()
-  }
-  
   /// Fetch remote changes
   /// - Parameter resettingToken: reset the sync token to fetch everything. Default: `false`
   /// - Parameter onCompletion: completion called after fetching remote changes. No thread guarantees.
   public func pullChanges(resettingToken: Bool = false, 
-                          onCompletion: ((Result<SyncEngine<Model>.ModelChanges, Error>) -> Void)? = nil) {
+                          onCompletion: @escaping ((Result<SyncEngine<Model>.ModelChanges, Error>) -> Void)) {
     logHandler(#function, .debug)
     
     workQueue.async { [weak self] in
@@ -263,24 +187,12 @@ public final class SyncEngine<Model: CloudKitCodable> {
     }
   }
   
-  public func pushChanges() {
-    logHandler(#function, .debug)
-    
-    workQueue.async { [weak self] in
-      guard let self else { return }
-            
-      // Push local updates / deletes
-      self.performUpdate(with: self.uploadContext)
-      self.performUpdate(with: self.deleteContext)
-    }
-  }
-  
   /// Users of SyncEngine must call this method to update the server's change token after consuming `ModelChanges`
   /// so that the token is not inadvertently saved before changes have been processed. Power failure, other fatal crashes
   /// may prevent the caller from successfully consuming these changes.
   /// - Parameter changeToken: new change token
   public func updateChangeToken(_ changeToken: CKServerChangeToken?,
-                                onCompletion: (() -> ())? = nil) {
+                                onCompletion: @escaping (() -> ())) {
     guard let changeToken else {
       self.logHandler("Ignored commiting empty change token", .info)
       
@@ -294,11 +206,11 @@ public final class SyncEngine<Model: CloudKitCodable> {
       
       self.privateChangeToken = changeToken
       
-      onCompletion?()
+      onCompletion()
     }
   }
 
-  /// Processes remote change push notifications from CloudKit.
+  /// Check if this is a CloudKit notification that our sync engine can process.
   ///
   /// To subscribe to automatic changes, register for CloudKit push notifications by calling `application.registerForRemoteNotifications()`
   /// in your AppDelegate's `application(_:didFinishLaunchingWithOptions:)`. Then, call this method in
@@ -306,7 +218,7 @@ public final class SyncEngine<Model: CloudKitCodable> {
   /// - Parameters:
   ///   - userInfo: A dictionary that contains information about the remote notification. Pass the `userInfo` dictionary from `application(_:didReceiveRemoteNotification:fetchCompletionHandler:)` here.
   /// - Returns: Whether or not this notification was processed by the sync engine.
-  @discardableResult public func processRemoteChangeNotification(with userInfo: [AnyHashable: Any]) -> Bool {
+  @discardableResult public func canProcessRemoteChangeNotification(with userInfo: [AnyHashable: Any]) -> Bool {
     logHandler(#function, .debug)
 
     guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) else {
@@ -319,12 +231,6 @@ public final class SyncEngine<Model: CloudKitCodable> {
     }
 
     logHandler("Received remote CloudKit notification for user data", .debug)
-
-    self.workQueue.async { [weak self] in
-      guard let self else { return }
-      
-      self.fetchRemoteChanges()
-    }
 
     return true
   }

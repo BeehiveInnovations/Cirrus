@@ -10,7 +10,7 @@ extension SyncEngine {
   
   /// Fetch remote changes
   /// - Parameter onCompletion: pass a completion block that gets called only after changes have beel pulled, emitted and consumed
-  func fetchRemoteChanges(onCompletion: ((Result<SyncEngine<Model>.ModelChanges, Error>) -> Void)? = nil) {
+  func fetchRemoteChanges(onCompletion: @escaping ((Result<SyncEngine<Model>.ModelChanges, Error>) -> Void)) {
     logHandler("\(#function)", .debug)
 
     // Dictionary to hold the latest version of each changed record
@@ -18,12 +18,11 @@ extension SyncEngine {
     var deletedRecordIDs: [CKRecord.ID] = []
     
     // Completion handler invocation guard
-    let useCompletion = onCompletion != nil
     var completionCalled = false
     let callCompletion: (Result<SyncEngine<Model>.ModelChanges, Error>) -> Void = { result in
       if !completionCalled {
         completionCalled = true
-        onCompletion?(result)
+        onCompletion(result)
       }
     }
     
@@ -114,18 +113,10 @@ extension SyncEngine {
             self.logHandler("Finalizing fetch [\(changedRecords.count) changes, \(deletedRecordIDs.count) deletes]", .info)
           }
           
-          if useCompletion {
-            // When using a completion block, accumulated changes are returned at once
-            callCompletion(.success(makeModelChanges(with: changedRecords,
-                                                     deletedRecordIDs: deletedRecordIDs,
-                                                     andChangeToken: newChangeToken)))
-          }
-          else {
-            self.emitServerChanges(with: changedRecords,
-                                   deletedRecordIDs: deletedRecordIDs,
-                                   andChangeToken: newChangeToken)
-            
-          }
+          // When using a completion block, accumulated changes are returned at once
+          callCompletion(.success(makeModelChanges(with: changedRecords,
+                                                   deletedRecordIDs: deletedRecordIDs,
+                                                   andChangeToken: newChangeToken)))
           
           latestChangedRecords.removeAll()
           deletedRecordIDs.removeAll()
@@ -166,11 +157,6 @@ extension SyncEngine {
     operation.database = privateDatabase
 
     cloudOperationQueue.addOperation(operation)
-    
-    // we want to wait for the fetch to complete before pushing changes
-    if !useCompletion {
-      cloudOperationQueue.waitUntilAllOperationsAreFinished()
-    }
   }
 
   // MARK: - Private
@@ -210,19 +196,6 @@ extension SyncEngine {
   }
   
   // MARK: - Helper
-
-  private func emitServerChanges(with changedRecords: [CKRecord], 
-                                 deletedRecordIDs: [CKRecord.ID],
-                                 andChangeToken changeToken: CKServerChangeToken?) {
-    guard !changedRecords.isEmpty || !deletedRecordIDs.isEmpty else {
-      logHandler("Finished record zone changes fetch with no changes", .info)
-      return
-    }
-
-    let modelChanges = makeModelChanges(with: changedRecords, deletedRecordIDs: deletedRecordIDs, andChangeToken: changeToken)
-
-    modelsChangedSubject.send(modelChanges)
-  }
   
   /// Wrap changes that need to be returned to the caller
   /// - Parameters:
