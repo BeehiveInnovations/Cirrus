@@ -299,10 +299,11 @@ public final class SyncEngine<Model: CloudKitCodable> {
       return false
     }
     
-    // Subscribe to CloudKit changes, but bail early if we fail
-    if try await self.initializeSubscription() == false {
-      self.logHandler("Unable to initialize subscription to changes, bailing from setup early", .error)
-      return false
+    // Subscribe to CloudKit changes, don't treat this as an error if this fails
+    let initSub = (try? await self.initializeSubscription()) ?? false
+    
+    if initSub == false {
+      self.logHandler("Unable to initialize subscription to changes", .info)
     }
     
     self.logHandler("Cloud environment preparation done", .debug)
