@@ -383,7 +383,7 @@ extension SyncEngine {
   ///   - model: model to delete
   public func delete(_ model: Model) async throws -> SyncEngine<Model>.ModelChanges {
     try await withCheckedThrowingContinuation { continuation in
-      self.deleteRecord(model, usingContext: self.uploadContext) { result in
+      self.deleteRecord(model, usingContext: self.deleteContext) { result in
         switch result {
           case .success(let changes):
             continuation.resume(returning: changes)
