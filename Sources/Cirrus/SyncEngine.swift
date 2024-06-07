@@ -66,15 +66,16 @@ public final class SyncEngine<Model: CloudKitCodable> {
   let subKeyPostfix = ""
 #endif
   
-  lazy var privateSubscriptionIdentifier = "\(zoneIdentifier.zoneName).subscription\(subKeyPostfix)"
+  // Subscriptions are one per device - must be the same for both dev and production
+  lazy var privateSubscriptionIdentifier = "\(zoneIdentifier.zoneName).subscription"
+  
+  /// UserDefaults key for storing change-token. Different for dev / production to validate / test
   lazy var privateChangeTokenKey = "TOKEN-\(zoneIdentifier.zoneName)\(subKeyPostfix)"
-  lazy var createdPrivateSubscriptionKey = "CREATEDSUBDB-\(zoneIdentifier.zoneName)\(subKeyPostfix)"
-  lazy var createdCustomZoneKey = "CREATEDZONE-\(zoneIdentifier.zoneName)\(subKeyPostfix)"
   
-  // trailing ")"
-  lazy var legacyCreatedPrivateSubscriptionKey = "CREATEDSUBDB-\(zoneIdentifier.zoneName))"
-  lazy var legacyCreatedCustomZoneKey = "CREATEDZONE-\(zoneIdentifier.zoneName))"
-  
+  // Note: this has a trailing ) but too late to fix after it's been deployed
+  lazy var createdPrivateSubscriptionKey = "CREATEDSUBDB-\(zoneIdentifier.zoneName))"
+  lazy var createdCustomZoneKey = "CREATEDZONE-\(zoneIdentifier.zoneName))"
+    
   lazy var workQueue = DispatchQueue(
     label: "SyncEngine.Work.\(zoneIdentifier.zoneName)",
     qos: .userInitiated

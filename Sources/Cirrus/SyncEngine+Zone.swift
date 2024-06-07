@@ -23,11 +23,10 @@ extension SyncEngine {
 
   private var createdCustomZone: Bool {
     get {
-      return defaults.bool(forKey: createdCustomZoneKey) || defaults.bool(forKey: legacyCreatedCustomZoneKey)
+      return defaults.bool(forKey: createdCustomZoneKey)
     }
     set {
       defaults.set(newValue, forKey: createdCustomZoneKey)
-      defaults.removeObject(forKey: legacyCreatedCustomZoneKey)
     }
   }
 

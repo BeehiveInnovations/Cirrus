@@ -2,6 +2,11 @@ import CloudKit
 import Foundation
 import os.log
 
+// NOTE: CloudKit will only allow a single subscription per device + zone combination etc
+// Changing subscription keys between Debug and Production means the code has to re-create the
+// subscription and delete the old one, which probably isn't worth doing. Thus, this uses
+// the same key for both.
+
 extension SyncEngine {
 
   // MARK: - Internal
@@ -23,11 +28,10 @@ extension SyncEngine {
 
   private var createdPrivateSubscription: Bool {
     get {
-      return defaults.bool(forKey: createdPrivateSubscriptionKey) || defaults.bool(forKey: legacyCreatedPrivateSubscriptionKey)
+      return defaults.bool(forKey: createdPrivateSubscriptionKey)
     }
     set {
       defaults.set(newValue, forKey: createdPrivateSubscriptionKey)
-      defaults.removeObject(forKey: legacyCreatedPrivateSubscriptionKey)
     }
   }
 
