@@ -50,7 +50,12 @@ extension SyncEngine {
       return
     }
     
-    logHandler("Sending \(recordsToSave.count) record(s) for upload and \(recordIDsToDelete.count) record(s) for deletion.", .debug)
+    if recordsToSave.isEmpty {
+      logHandler("Sending \(recordIDsToDelete.count) record(s) for deletion", .debug)
+    }
+    else {
+      logHandler("Sending \(recordsToSave.count) record(s) for upload", .debug)
+    }
     
     let operation = CKModifyRecordsOperation(recordsToSave: recordsToSave.isEmpty ? nil : recordsToSave,
                                              recordIDsToDelete: recordIDsToDelete.isEmpty ? nil : recordIDsToDelete)
@@ -88,13 +93,7 @@ extension SyncEngine {
           self.logHandler("Successfully \(context.name) record(s). Saved \(serverRecords?.count ?? 0) and deleted \(deletedRecordIDs?.count ?? 0)", .info)
         }
         
-        self.workQueue.async { [weak self] in
-          guard let self else {
-            onCompletion(.failure(CKError(.internalError)))
-            
-            return
-          }
-          
+        self.workQueue.async {
           let modelChanges: SyncEngine<Model>.ModelChanges = context.modelChangeForUpdatedRecords(recordsSaved: serverRecords ?? [],
                                                                                                   recordIDsDeleted: deletedRecordIDs ?? [])
           
@@ -236,9 +235,7 @@ extension SyncEngine {
             !conflictsToSaveSet.contains($0.recordID)
             && batchRequestFailedRecordIDs.contains($0.recordID)
           }
-          
-          let finalSavesWithoutUknowns = batchRequestFailureRecordsToSave + resolvedConflictsToSave
-          
+                    
           // Handle completion failures separately as these would be for individual items
           // If an unknown record could not be saved or deleted, stop and invoke the callback
           if !unknownRecords.isEmpty || !unknownDeletedIDs.isEmpty {
@@ -249,17 +246,18 @@ extension SyncEngine {
                                                                                               recordIDsDeleted: unknownDeletedIDs)
             
             onCompletion(.success(failedChanges))
-            
-            return
           }
-          
-          modifyRecords(
-            toSave: finalSavesWithoutUknowns,
-            recordIDsToDelete: recordIDsToDeleteWithoutUnknowns,
-            context: context,
-            savePolicyOverride: .changedKeys,
-            onCompletion: onCompletion
-          )
+          else {
+            let finalSavesWithoutUknowns = batchRequestFailureRecordsToSave + resolvedConflictsToSave
+            
+            modifyRecords(
+              toSave: finalSavesWithoutUknowns,
+              recordIDsToDelete: recordIDsToDeleteWithoutUnknowns,
+              context: context,
+              savePolicyOverride: .changedKeys,
+              onCompletion: onCompletion
+            )
+          }
         }
         else {
           onCompletion(.failure(error))
