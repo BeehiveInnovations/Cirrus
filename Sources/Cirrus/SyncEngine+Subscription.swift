@@ -57,7 +57,6 @@ extension SyncEngine {
     let operation = CKModifySubscriptionsOperation(subscriptionsToSave: [subscription], subscriptionIDsToDelete: nil)
 
     operation.database = privateDatabase
-    operation.qualityOfService = .userInitiated
 
     operation.modifySubscriptionsCompletionBlock = { [weak self] _, _, error in
       guard let self else { return }
@@ -159,7 +158,6 @@ extension SyncEngine {
       }
     }
 
-    operation.qualityOfService = .userInitiated
     operation.database = privateDatabase
 
     cloudOperationQueue.addOperation(operation)

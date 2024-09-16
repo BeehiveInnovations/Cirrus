@@ -157,7 +157,6 @@ extension SyncEngine {
       }
     }
 
-    operation.qualityOfService = .userInitiated
     operation.database = privateDatabase
 
     cloudOperationQueue.addOperation(operation)

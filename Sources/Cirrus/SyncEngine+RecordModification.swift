@@ -103,7 +103,6 @@ extension SyncEngine {
     }
     
     operation.savePolicy = savePolicyOverride ?? self.savePolicy
-    operation.qualityOfService = .userInitiated
     operation.database = privateDatabase
     
     cloudOperationQueue.addOperation(operation)
