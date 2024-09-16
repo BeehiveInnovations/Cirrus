@@ -71,12 +71,10 @@ public final class SyncEngine<Model: CloudKitCodable> {
   lazy var createdCustomZoneKey = "CREATEDZONE-\(zoneIdentifier.zoneName))"
     
   lazy var workQueue = DispatchQueue(
-    label: "SyncEngine.Work.\(zoneIdentifier.zoneName)",
-    qos: .userInitiated
+    label: "SyncEngine.Work.\(zoneIdentifier.zoneName)"
   )
   private lazy var cloudQueue = DispatchQueue(
-    label: "SyncEngine.Cloud.\(zoneIdentifier.zoneName)",
-    qos: .userInitiated
+    label: "SyncEngine.Cloud.\(zoneIdentifier.zoneName)"
   )
   
   /// Flag to check if user has setup the environment before usage
@@ -169,7 +167,7 @@ public final class SyncEngine<Model: CloudKitCodable> {
       return true
     }
     
-    let accountStatus = try await observeAccountStatus()
+    let accountStatus: AccountStatus = (try? await observeAccountStatus()) ?? .noAccount
     
     if accountStatus != .available {
       let accStr: String
