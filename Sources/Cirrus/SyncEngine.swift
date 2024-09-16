@@ -86,10 +86,10 @@ public final class SyncEngine<Model: CloudKitCodable> {
   let recordType: CKRecord.RecordType
   let zoneIdentifier: CKRecordZone.ID
   
-  let container: CKContainer
+  let container: CKContainer?
   let logHandler: (String, OSLogType) -> Void
   
-  lazy var privateDatabase: CKDatabase = container.privateCloudDatabase
+  lazy var privateDatabase: CKDatabase? = container?.privateCloudDatabase
   
   var cancellables = Set<AnyCancellable>()
   

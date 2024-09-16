@@ -32,6 +32,13 @@ extension SyncEngine {
   internal func updateAccountStatus(_ onCompletion: @escaping ((Result<AccountStatus, Error>) -> Void)) {
     logHandler(#function, .debug)
     
+    guard let container else {
+      self.accountStatus = .noAccount
+      
+      onCompletion(.success(.noAccount))
+      return
+    }
+    
     container.accountStatus { [weak self] status, error in
       if let error {
         self?.logHandler("Error retriving iCloud account status: \(error.localizedDescription)", .error)
