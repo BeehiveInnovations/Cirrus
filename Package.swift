@@ -11,9 +11,11 @@ let package = Package(
   ],
   products: [
     .library(
-      name: "Cirrus",
+      name: "CirrusStatic",
+      type: .static,
       targets: ["Cirrus"]
     ),
+    .library(name: "Cirrus", type: .dynamic, targets: ["Cirrus"]),
     .library(
       name: "CloudKitCodable",
       targets: ["CloudKitCodable"]
