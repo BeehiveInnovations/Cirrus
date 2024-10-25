@@ -84,7 +84,14 @@ extension Error {
     
     let retryDelay: Double
     
-    if let suggestedRetryDelay = effectiveError.retryAfterSeconds {
+    // Handle token expiry, both direct and within partial failures
+    if effectiveError.code == .changeTokenExpired {
+      retryDelay = 0
+    }
+    else if effectiveError.code == .partialFailure, let partialErrors = effectiveError.userInfo[CKPartialErrorsByItemIDKey] as? [AnyHashable: Error], partialErrors.values.contains(where: { ($0 as? CKError)?.code == .changeTokenExpired }) == true {
+      retryDelay = 0
+    }
+    else if let suggestedRetryDelay = effectiveError.retryAfterSeconds {
       retryDelay = suggestedRetryDelay
     } 
     else if effectiveError.code == CKError.Code.limitExceeded {
