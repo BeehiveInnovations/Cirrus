@@ -42,10 +42,6 @@ extension SyncEngine {
                              savePolicyOverride: CKModifyRecordsOperation.RecordSavePolicy? = nil,
                              onCompletion: @escaping ((Result<SyncEngine<Model>.ModelChanges, Error>) -> Void)) {
     guard !recordIDsToDelete.isEmpty || !recordsToSave.isEmpty else {
-      // no need to call the completion handler given modifyRecord() calls this
-      // and there's guaranteed to be a single record being modified
-      // assert instead
-      assertionFailure("No record passed when completion handler variant used")
       onCompletion(.success(.init()))
       return
     }
