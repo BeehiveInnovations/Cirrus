@@ -24,7 +24,7 @@ public final class CKRecordEncoder {
 
     try value.encode(to: encoder)
 
-    let record = encoder.buildRecord()
+    let record = try encoder.buildRecord()
 
     try validateSize(for: encoder.storage.keys)
 
@@ -105,7 +105,7 @@ extension _CKRecordEncoder {
     }
   }
 
-  func buildRecord() -> CKRecord {
+  func buildRecord() throws -> CKRecord {
     let output: CKRecord =
       storage.record
       ?? CKRecord(
@@ -116,13 +116,16 @@ extension _CKRecordEncoder {
       )
 
     guard output.recordType == recordTypeName else {
-      fatalError(
+      let context = EncodingError.Context(
+        codingPath: [],
+        debugDescription:
         """
         CloudKit record type mismatch: the record should be of type \(recordTypeName) but it was
         of type \(output.recordType). This is probably a result of corrupted cloudKitSystemData
         or a change in record/type name that must be corrected in your type by adopting CustomCloudKitEncodable.
         """
       )
+      throw EncodingError.invalidValue(Any.self, context)
     }
 
     storage.keys.forEach { (key, value) in output[key] = value }
