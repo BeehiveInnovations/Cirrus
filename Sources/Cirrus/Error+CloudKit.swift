@@ -42,6 +42,60 @@ extension Error {
         .fault)
       return nil
     }
+    
+    // Special handling for "record already exists" case
+    if effectiveError.localizedDescription.contains("record to insert already exists"),
+       let ancestorRecord = effectiveError.ancestorRecord {
+      // Use the ancestor record as the server record since it represents
+      // the last known server state
+      logger?("Using ancestor record for already-exists conflict", .error)
+      
+      // Debug logging
+      logger?("Ancestor Record Type: \(ancestorRecord.recordType)", .debug)
+      logger?("Ancestor Record Keys: \(ancestorRecord.allKeys())", .debug)
+      logger?("Client Record Keys: \(clientRecord.allKeys())", .debug)
+      
+      // If ancestor record is empty, use client record as base
+      if ancestorRecord.allKeys().isEmpty {
+        logger?("Ancestor record is empty, using client record as base", .info)
+        
+        // Create a new record with the same ID but using client data
+        let newRecord = CKRecord(recordType: clientRecord.recordType,
+                                 recordID: clientRecord.recordID)
+        
+        // Copy all fields from client record
+        clientRecord.allKeys().forEach { key in
+          newRecord[key] = clientRecord[key]
+        }
+        
+        return newRecord
+      }
+      
+      guard
+        let clientPersistable = try? CKRecordDecoder().decode(
+          Persistable.self, from: clientRecord)
+      else { return nil }
+      
+      logger?("Client decode succeeded", .debug)
+      
+      guard let ancestorPersistable = try? CKRecordDecoder().decode(
+          Persistable.self, from: ancestorRecord)
+      else { return nil }
+      
+      logger?("Ancestor decode succeeded", .debug)
+      
+      guard let resolvedPersistable = resolver(clientPersistable, ancestorPersistable)
+      else { return nil }
+      
+      guard let resolvedRecord = try? CKRecordEncoder(zoneID: ancestorRecord.recordID.zoneID).encode(
+          resolvedPersistable)
+      else { return nil }
+      
+      logger?("Resolved record succeeded", .debug)
+      
+      resolvedRecord.allKeys().forEach { ancestorRecord[$0] = resolvedRecord[$0] }
+      return ancestorRecord
+    }
 
     guard let serverRecord = effectiveError.serverRecord else {
       logger?(
@@ -56,15 +110,26 @@ extension Error {
 
     // Always return the server record so we don't end up in a conflict loop (the server record has the change tag we want to use)
     // https://developer.apple.com/documentation/cloudkit/ckerror/2325208-serverrecordchanged
+    
     guard
       let clientPersistable = try? CKRecordDecoder().decode(
-        Persistable.self, from: clientRecord),
+        Persistable.self, from: clientRecord)
+    else { return nil }
+    
+    guard
       let serverPersistable = try? CKRecordDecoder().decode(
-        Persistable.self, from: serverRecord),
-      let resolvedPersistable = resolver(clientPersistable, serverPersistable),
+        Persistable.self, from: serverRecord)
+    else { return nil }
+    
+    guard
+      let resolvedPersistable = resolver(clientPersistable, serverPersistable)
+    else { return nil }
+    
+    guard
       let resolvedRecord = try? CKRecordEncoder(zoneID: serverRecord.recordID.zoneID).encode(
         resolvedPersistable)
     else { return nil }
+    
     resolvedRecord.allKeys().forEach { serverRecord[$0] = resolvedRecord[$0] }
     return serverRecord
   }
