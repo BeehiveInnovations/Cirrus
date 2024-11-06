@@ -91,6 +91,13 @@ extension Error {
           resolvedPersistable)
       else { return nil }
       
+      if resolvedPersistable == clientPersistable {
+        logger?("Resolved record: local", .info)
+      }
+      else {
+        logger?("Resolved record: server", .info)
+      }
+      
       logger?("Resolved record succeeded", .debug)
       
       // Get all possible keys through reflection
@@ -138,6 +145,13 @@ extension Error {
       let resolvedRecord = try? CKRecordEncoder(zoneID: serverRecord.recordID.zoneID).encode(
         resolvedPersistable)
     else { return nil }
+    
+    if resolvedPersistable == clientPersistable {
+      logger?("Resolved record: local", .info)
+    }
+    else {
+      logger?("Resolved record: server", .info)
+    }
     
     // Get all possible keys through reflection
     let mirror = Mirror(reflecting: resolvedPersistable)
