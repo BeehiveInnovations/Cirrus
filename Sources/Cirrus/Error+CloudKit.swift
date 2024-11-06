@@ -92,10 +92,10 @@ extension Error {
       else { return nil }
       
       if resolvedPersistable == clientPersistable {
-        logger?("Resolved record: local", .info)
+        logger?("Resolved record: local", .default)
       }
       else {
-        logger?("Resolved record: server", .info)
+        logger?("Resolved record: server", .default)
       }
       
       logger?("Resolved record succeeded", .debug)
@@ -147,10 +147,10 @@ extension Error {
     else { return nil }
     
     if resolvedPersistable == clientPersistable {
-      logger?("Resolved record: local", .info)
+      logger?("Resolved record: local", .default)
     }
     else {
-      logger?("Resolved record: server", .info)
+      logger?("Resolved record: server", .default)
     }
     
     // Get all possible keys through reflection
