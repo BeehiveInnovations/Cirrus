@@ -93,7 +93,16 @@ extension Error {
       
       logger?("Resolved record succeeded", .debug)
       
-      resolvedRecord.allKeys().forEach { ancestorRecord[$0] = resolvedRecord[$0] }
+      // Get all possible keys through reflection
+      let mirror = Mirror(reflecting: resolvedPersistable)
+      let allPossibleKeys = mirror.children.compactMap { $0.label }
+      
+      // Update all keys, including nil values
+      allPossibleKeys.forEach { key in
+        // This will properly set nil values as well
+        ancestorRecord[key] = resolvedRecord[key]
+      }
+      
       return ancestorRecord
     }
 
@@ -130,7 +139,16 @@ extension Error {
         resolvedPersistable)
     else { return nil }
     
-    resolvedRecord.allKeys().forEach { serverRecord[$0] = resolvedRecord[$0] }
+    // Get all possible keys through reflection
+    let mirror = Mirror(reflecting: resolvedPersistable)
+    let allPossibleKeys = mirror.children.compactMap { $0.label }
+    
+    // Update all keys, including nil values
+    allPossibleKeys.forEach { key in
+      // This will properly set nil values as well
+      serverRecord[key] = resolvedRecord[key]
+    }
+    
     return serverRecord
   }
 
