@@ -224,11 +224,13 @@ public final class SyncEngine<Model: CloudKitCodable> {
   ///   - model: model to upload
   public func upload(_ model: Model) async throws -> SyncEngine<Model>.ModelChanges {
     try await withCheckedThrowingContinuation { continuation in
-      self.saveRecord(model, usingContext: self.uploadContext) { result in
+      self.saveRecord(model, usingContext: self.uploadContext) { [weak self] result in
         switch result {
           case .success(let changes):
             continuation.resume(returning: changes)
           case .failure(let error):
+            self?.logHandler("error: \(error.localizedDescription)", .error)
+            
             continuation.resume(throwing: error)
         }
       }
