@@ -26,20 +26,37 @@ extension CKRecordKeyedEncodingContainer: KeyedEncodingContainerProtocol {
         codingPath.map { $0.stringValue }.joined(separator: "-"))
     }
 
+    
+    // First check if the value is an optional array and unwrap it
+    if let optionalArray = value as? Optional<[Any]> {
+      // If it's nil, encode nil
+      if case .none = optionalArray {
+        try encodeNil(forKey: key)
+        return
+      }
+    }
+
     if key.stringValue == _CloudKitSystemFieldsKeyName {
       guard let systemFieldsData = value as? Data else {
         throw CKRecordEncodingError.systemFieldsDecode(
           "\(_CloudKitSystemFieldsKeyName) property must be of type Data.")
       }
       storage.set(record: CKRecordEncoder.decodeSystemFields(with: systemFieldsData))
-    } else if let value = value as? URL {
+    }
+    else if let value = value as? URL {
       storage.encode(codingPath: codingPath + [key], value: URLTransformer.encode(value))
-    } else if let value = value as? [URL] {
+    }
+    else if let value = value as? [String] {
+      storage.encode(codingPath: codingPath + [key], value: value.map(String.encode) as CKRecordValue)
+    }
+    else if let value = value as? [URL] {
       storage.encode(
         codingPath: codingPath + [key], value: value.map(URLTransformer.encode) as CKRecordValue)
-    } else if let value = value as? CKRecordValue {
+    }
+    else if let value = value as? CKRecordValue {
       storage.encode(codingPath: codingPath + [key], value: value)
-    } else {
+    }
+    else {
       do {
         let encoder = CKRecordSingleValueEncoder(storage: storage, codingPath: codingPath + [key])
         try value.encode(to: encoder)

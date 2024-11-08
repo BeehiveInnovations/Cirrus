@@ -89,7 +89,9 @@ struct DummyUnkeyedDecodingContainer: UnkeyedDecodingContainer {
   var isAtEnd: Bool = true
   var currentIndex: Int = 0
 
-  mutating func decodeNil() throws -> Bool { throw CKRecordSingleValueDecodingError.unableToDecode }
+  mutating func decodeNil() throws -> Bool {
+    throw CKRecordSingleValueDecodingError.unableToDecode
+  }
 
   mutating func decode<T>(_ type: T.Type) throws -> T where T: Decodable {
     throw CKRecordSingleValueDecodingError.unableToDecode
