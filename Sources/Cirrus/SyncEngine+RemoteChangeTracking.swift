@@ -198,7 +198,7 @@ extension SyncEngine {
     }
     set {
       guard let newValue else {
-        defaults.setValue(Data(), forKey: privateChangeTokenKey)
+        defaults.set(Data(), forKey: privateChangeTokenKey)
         
 #if DEBUG
         logHandler("Change token reset using key: \(privateChangeTokenKey)", .debug)
@@ -218,6 +218,7 @@ extension SyncEngine {
 #else
         logHandler("Change token updated", .default)
 #endif
+        defaults.synchronize()
       } catch {
         logHandler(
           "Failed to encode private change token: \(String(describing: error)) for key: \(privateChangeTokenKey)", .error)
