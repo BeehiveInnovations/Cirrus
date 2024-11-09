@@ -90,6 +90,8 @@ extension SyncEngine {
         }
         
         self.workQueue.async {
+          self.lastChangeDate = Date()
+          
           let modelChanges: SyncEngine<Model>.ModelChanges = context.modelChangeForUpdatedRecords(recordsSaved: serverRecords ?? [],
                                                                                                   recordIDsDeleted: deletedRecordIDs ?? [])
           

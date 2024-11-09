@@ -66,6 +66,12 @@ public final class SyncEngine<Model: CloudKitCodable> {
   /// UserDefaults key for storing change-token. Different for dev / production to validate / test
   lazy var privateChangeTokenKey = "TOKEN-\(zoneIdentifier.zoneName)"
   
+  /// UserDefaults key for the date when the token was last saved
+  lazy var privateChangeTokenSavedKey = "TOKEN-SAVE-\(zoneIdentifier.zoneName)"
+  
+  /// UserDefaults key for storing the date of the last change pushed / pulled
+  lazy var privateLastChangedateKey = "LASTCHANGE-\(zoneIdentifier.zoneName)"
+  
   // Note: this has a trailing ) but too late to fix after it's been deployed
   lazy var createdPrivateSubscriptionKey = "CREATEDSUBDB-\(zoneIdentifier.zoneName))"
   lazy var createdCustomZoneKey = "CREATEDZONE-\(zoneIdentifier.zoneName))"
@@ -346,9 +352,11 @@ public final class SyncEngine<Model: CloudKitCodable> {
     workQueue.async { [weak self] in
       guard let self else { return }
       
-      self.logHandler("Commiting new change token", .info)
-      
-      self.privateChangeToken = changeToken
+      if changeToken != self.privateChangeToken {
+        self.logHandler("Commiting new change token", .info)
+        
+        self.privateChangeToken = changeToken
+      }
       
       onCompletion()
     }
