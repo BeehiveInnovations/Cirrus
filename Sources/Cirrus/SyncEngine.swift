@@ -322,6 +322,8 @@ public final class SyncEngine<Model: CloudKitCodable> {
       guard let self else { return }
       
       if resettingToken {
+        self.logHandler("Previous change token requested reset", .info)
+        
         self.privateChangeToken = nil
       }
       

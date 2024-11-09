@@ -28,7 +28,7 @@ extension SyncEngine {
     
     let operation = CKFetchRecordZoneChangesOperation()
 
-    let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration(previousServerChangeToken: privateChangeToken)
+    let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration(previousServerChangeToken: finalChangeToken)
 
     operation.configurationsByRecordZoneID = [zoneIdentifier: config]
 
@@ -166,11 +166,28 @@ extension SyncEngine {
 
   internal var privateChangeToken: CKServerChangeToken? {
     get {
-      guard let data = defaults.data(forKey: privateChangeTokenKey) else { return nil }
-      guard !data.isEmpty else { return nil }
+      guard let data = defaults.data(forKey: privateChangeTokenKey) else {
+#if DEBUG
+        logHandler("Previous change token not found for: \(privateChangeTokenKey)", .debug)
+#else
+        logHandler("Previous change token not found", .default)
+#endif
+        
+        return nil
+      }
+      guard !data.isEmpty else {
+#if DEBUG
+        logHandler("Previous change token is empty for: \(privateChangeTokenKey)", .debug)
+#else
+        logHandler("Previous change token is empty", .default)
+#endif
+        return nil
+      }
 
       do {
         let token = try NSKeyedUnarchiver.unarchivedObject(ofClass: CKServerChangeToken.self, from: data)
+        
+        logHandler("Previous change token: \(token.debugDescription), for key: \(privateChangeTokenKey)", .debug)
 
         return token
       } catch {
@@ -182,6 +199,12 @@ extension SyncEngine {
     set {
       guard let newValue else {
         defaults.setValue(Data(), forKey: privateChangeTokenKey)
+        
+#if DEBUG
+        logHandler("Change token reset using key: \(privateChangeTokenKey)", .debug)
+#else
+        logHandler("Change token reset", .default)
+#endif
         return
       }
 
@@ -189,9 +212,15 @@ extension SyncEngine {
         let data = try NSKeyedArchiver.archivedData(withRootObject: newValue, requiringSecureCoding: true)
 
         defaults.set(data, forKey: privateChangeTokenKey)
+        
+#if DEBUG
+        logHandler("Change token updated to: \(newValue.debugDescription), key: \(privateChangeTokenKey)", .debug)
+#else
+        logHandler("Change token updated", .default)
+#endif
       } catch {
         logHandler(
-          "Failed to encode private change token: \(String(describing: error))", .error)
+          "Failed to encode private change token: \(String(describing: error)) for key: \(privateChangeTokenKey)", .error)
       }
     }
   }
@@ -206,12 +235,10 @@ extension SyncEngine {
   private func makeModelChanges(with changedRecords: [CKRecord],
                                 deletedRecordIDs: [CKRecord.ID],
                                 andChangeToken changeToken: CKServerChangeToken? = nil) -> ModelChanges {
-    guard !changedRecords.isEmpty || !deletedRecordIDs.isEmpty else {
-      logHandler("Finished record zone changes fetch with no changes", .info)
-      return .init()
-    }
     
-    logHandler("Fetched \(changedRecords.count) changed record(s) and \(deletedRecordIDs.count) deleted record(s)", .info)
+    if !changedRecords.isEmpty || !deletedRecordIDs.isEmpty {
+      logHandler("Fetched \(changedRecords.count) changed record(s) and \(deletedRecordIDs.count) deleted record(s)", .info)
+    }
     
     let models: Set<Model> = Set(
       changedRecords.compactMap { record in
