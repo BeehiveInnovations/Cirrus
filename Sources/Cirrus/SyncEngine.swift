@@ -112,6 +112,21 @@ public final class SyncEngine<Model: CloudKitCodable> {
     return queue
   }()
   
+  // MARK: - Private Properties
+  
+  internal var currentFetchOperation: CKFetchRecordZoneChangesOperation? {
+    willSet {
+      // Cancel existing operation before assigning new one
+      if let operation = currentFetchOperation {
+        logHandler("Cancelling previous operation", .default)
+        
+        operation.cancel()
+        // Clear all completion blocks to prevent retained references
+        clearOperationBlocks(operation)
+      }
+    }
+  }
+  
   /// Initializes the cloudkit container, however you must call the `setup()` method separately to setup the cloud kit environment
   ///
   /// - Parameters:

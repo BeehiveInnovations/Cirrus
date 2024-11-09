@@ -13,6 +13,8 @@ extension SyncEngine {
   func fetchRemoteChanges(onCompletion: @escaping ((Result<SyncEngine<Model>.ModelChanges, Error>) -> Void)) {
     logHandler("\(#function)", .debug)
 
+    // track if our fetch failed and we're retrying
+    var operationRetrying = false
     var changedRecords: [CKRecord] = []
     var deletedRecordIDs = Set<CKRecord.ID>()
     var finalChangeToken: CKServerChangeToken? = privateChangeToken
@@ -27,6 +29,8 @@ extension SyncEngine {
     }
     
     let operation = CKFetchRecordZoneChangesOperation()
+    
+    self.currentFetchOperation = operation // This will cancel any existing operatio/
 
     let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration(previousServerChangeToken: finalChangeToken)
 
@@ -38,6 +42,51 @@ extension SyncEngine {
 
     operation.recordZoneIDs = [zoneIdentifier]
     operation.fetchAllChanges = true
+    
+    // Handle zone fetch failure with retry
+    let handleZoneFetchFailure: (Error) -> Void = { [weak self] error in
+      guard let self = self else { return }
+      
+      self.logHandler("Zone fetch failed: \(error.localizedDescription)", .error)
+      
+      if let ckError = error as? CKError {
+        switch ckError.code {
+          case .changeTokenExpired:
+            operationRetrying = true
+            
+            self.workQueue.async { [weak self] in
+              guard let self = self else { return }
+              self.logHandler("Change token expired, resetting change token and trying again", .error)
+              self.privateChangeToken = nil
+              
+              DispatchQueue.main.async {
+                self.fetchRemoteChanges(onCompletion: callCompletion)
+              }
+            }
+          default:
+            // Only retry if it's a retryable error
+            let result = ckError.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
+              self.fetchRemoteChanges(onCompletion: callCompletion)
+            }
+            
+            if !result {
+              logHandler("Fetch is not possible: \( String(describing: error))", .error)
+              
+              self.workQueue.async {
+                callCompletion(.failure(error))
+              }
+            }
+            else {
+              operationRetrying = true
+            }
+        }
+      }
+      else {
+        self.workQueue.async {
+          callCompletion(.failure(error))
+        }
+      }
+    }
   
     // Take individually deleted record
     operation.recordWithIDWasDeletedBlock = { [weak self] recordID, recordType in
@@ -157,49 +206,24 @@ extension SyncEngine {
             }
             
           case .failure(let error):
-            self.logHandler("Zone fetch failed: \(error.localizedDescription)", .error)
+            self.logHandler("recordZoneFetchResultBlock failed: \(error.localizedDescription)", .debug)
             
-            if let error = error as? CKError {
-              switch error.code {
-                case .changeTokenExpired:
-                  self.workQueue.async { [weak self] in
-                    guard let self else { return }
-                    
-                    self.logHandler("Change token expired, resetting change token and trying again", .error)
-                    
-                    self.privateChangeToken = nil
-                    
-                    DispatchQueue.main.async { [weak self] in
-                      guard let self else { return }
-                      
-                      self.fetchRemoteChanges(onCompletion: callCompletion)
-                    }
-                  }
-                default:
-                  let result = error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
-                    self.fetchRemoteChanges(onCompletion: callCompletion)
-                  }
-                  
-                  if !result {
-                    logHandler("Fetch is not possible: \( String(describing: error))", .error)
-                    
-                    self.workQueue.async {
-                      callCompletion(.failure(error))
-                    }
-                  }
-              }
-            }
-            else {
-              self.workQueue.async {
-                callCompletion(.failure(error))
-              }
-            }
+            handleZoneFetchFailure(error)
         }
       }
       
       // Called after the entire fetch operation completes for all zones
+      //
+      // Important: This block is called immediately after recordZoneFetchResultBlock,
+      // so even if `recordZoneFetchResultBlock` got called with a failure such as for an expired token,
+      // the following block will be called with a `success` and NOT a failure!
       operation.fetchRecordZoneChangesResultBlock = { [weak self] result in
         guard let self else { return }
+        
+        guard operationRetrying == false else {
+          self.logHandler("Finished fetching record zone changes, nothing to do as we're retrying", .debug)
+          return
+        }
         
         switch result {
           case .failure(let error):
@@ -255,31 +279,9 @@ extension SyncEngine {
         guard let self else { return }
         
         if let error = error as? CKError {
-          self.logHandler("Failed to fetch record zone changes (final? \(isFinalChange ? "yes" : "no")): \(String(describing: error))", .error)
+          self.logHandler("recordZoneFetchCompletionBlock failure: \(error.localizedDescription)", .debug)
           
-          if error.code == .changeTokenExpired {
-            self.workQueue.async { [weak self] in
-              guard let self else { return }
-              
-              self.logHandler("Change token expired, resetting change token and trying again", .error)
-              
-              self.privateChangeToken = nil
-              self.fetchRemoteChanges(onCompletion: callCompletion)
-            }
-          }
-          else {
-            let result = error.retryCloudKitOperationIfPossible(self.logHandler, queue: self.workQueue) {
-              self.fetchRemoteChanges(onCompletion: callCompletion)
-            }
-            
-            if !result {
-              logHandler("Fetch is not possible: \( String(describing: error))", .error)
-              
-              self.workQueue.async {
-                callCompletion(.failure(error))
-              }
-            }
-          }
+          handleZoneFetchFailure(error)
         }
         else {
           self.workQueue.async { [weak self] in
@@ -314,6 +316,11 @@ extension SyncEngine {
       // Called after the entire fetch operation completes for all zones
       operation.fetchRecordZoneChangesCompletionBlock = { [weak self] error in
         guard let self else { return }
+        
+        guard operationRetrying == false else {
+          self.logHandler("Finished fetching record zone changes, nothing to do as we're retrying", .debug)
+          return
+        }
         
         if let error {
           self.logHandler("Failed to fetch record zone changes: \(String(describing: error))", .error)
@@ -494,5 +501,22 @@ extension SyncEngine {
     return .init(updates: .updatesPulled(models),
                  deletes: .deletesPulled(deletedIdentifiers),
                  changeToken: changeToken)
+  }
+  
+  /// Clear out a previously running operation
+  internal func clearOperationBlocks(_ operation: CKFetchRecordZoneChangesOperation) {
+    logHandler("Clearing previous operation", .debug)
+    
+    if #available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *) {
+      operation.recordWasChangedBlock = nil
+      operation.recordZoneFetchResultBlock = nil
+      operation.fetchRecordZoneChangesResultBlock = nil
+    } else {
+      operation.recordChangedBlock = nil
+      operation.recordZoneFetchCompletionBlock = nil
+      operation.fetchRecordZoneChangesCompletionBlock = nil
+    }
+    operation.recordWithIDWasDeletedBlock = nil
+    operation.recordZoneChangeTokensUpdatedBlock = nil
   }
 }
