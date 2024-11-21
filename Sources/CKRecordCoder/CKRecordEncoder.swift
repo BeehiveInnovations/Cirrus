@@ -16,7 +16,7 @@ public final class CKRecordEncoder {
     let type = value.cloudKitRecordType
     let recordName = value.cloudKitIdentifier
     
-    guard !recordName.isEmpty else {
+    guard !recordName.isEmpty && !type.isEmpty else {
       let context = EncodingError.Context(
         codingPath: [],
         debugDescription:
