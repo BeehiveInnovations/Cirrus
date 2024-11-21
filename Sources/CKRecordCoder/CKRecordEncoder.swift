@@ -15,6 +15,17 @@ public final class CKRecordEncoder {
   public func encode<E: CloudKitCodable>(_ value: E) throws -> CKRecord {
     let type = value.cloudKitRecordType
     let recordName = value.cloudKitIdentifier
+    
+    guard !recordName.isEmpty else {
+      let context = EncodingError.Context(
+        codingPath: [],
+        debugDescription:
+        """
+        CloudKit record type is empty.
+        """
+      )
+      throw EncodingError.invalidValue(Any.self, context)
+    }
 
     let encoder = _CKRecordEncoder(
       recordTypeName: type,
@@ -22,7 +33,15 @@ public final class CKRecordEncoder {
       zoneID: zoneID
     )
 
-    try value.encode(to: encoder)
+    do {
+      try value.encode(to: encoder)
+    } catch {
+      let context = EncodingError.Context(
+        codingPath: [],
+        debugDescription: "Failed to encode value: \(error.localizedDescription)"
+      )
+      throw EncodingError.invalidValue(value, context)
+    }
 
     let record = try encoder.buildRecord()
 
