@@ -125,6 +125,17 @@ extension _CKRecordEncoder {
   }
 
   func buildRecord() throws -> CKRecord {
+    guard !recordName.isEmpty && !recordTypeName.isEmpty else {
+      let context = EncodingError.Context(
+        codingPath: [],
+        debugDescription:
+        """
+        CloudKit record type is empty.
+        """
+      )
+      throw EncodingError.invalidValue(Any.self, context)
+    }
+    
     let output: CKRecord =
       storage.record
       ?? CKRecord(
